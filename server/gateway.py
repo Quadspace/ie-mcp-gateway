@@ -34,7 +34,7 @@ from starlette.responses import JSONResponse, HTMLResponse, Response
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "7.1.0"
+VERSION = "7.2.0"
 
 # Load .env from config directory
 HOME = Path(os.environ.get("HOME", "/home/ubuntu"))
@@ -234,19 +234,21 @@ async def run_claude_code(task: str, tier: str = "standard", working_dir: str = 
             cwd=cwd,
         )
         
-        # Wait for completion with timeout (5 minutes default)
+        # Wait for completion with timeout
+        # Standard tasks: 180s. Power tasks: 300s.
+        timeout_secs = 300 if tier == "power" else 180
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_secs)
         except asyncio.TimeoutError:
             proc.kill()
             await proc.communicate()
             duration_ms = int((time.time() - start) * 1000)
             return {
-                "output": None,
+                "output": f"Task timed out after {timeout_secs} seconds. Consider using a simpler task or power tier for complex work.",
                 "duration_ms": duration_ms,
                 "model": model,
                 "status": "timeout",
-                "error": "Task timed out after 300 seconds",
+                "error": f"Task timed out after {timeout_secs} seconds",
             }
         
         duration_ms = int((time.time() - start) * 1000)
@@ -312,7 +314,7 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-async def execute_code_task(task: str, tier: str = "standard", working_dir: str = "") -> str:
+async def execute_code_task(task: str, tier: str = "standard", working_dir: str = "", max_turns: int = 10) -> str:
     """
     Execute a coding task using Claude Code on the Mac Mini.
     
@@ -325,7 +327,8 @@ async def execute_code_task(task: str, tier: str = "standard", working_dir: str 
     Args:
         task: The coding task to execute. Be specific about what you want done.
         tier: "standard" (Claude Sonnet, fast) or "power" (Claude Opus, complex tasks)
-        working_dir: Optional working directory path. Defaults to the project directory.
+        working_dir: Optional working directory path. Leave empty for /tmp (faster for simple tasks).
+        max_turns: Maximum agentic turns (default 10). Use 20-50 for complex multi-file tasks.
     
     Returns:
         The full output from Claude Code including any files created/modified.
@@ -337,10 +340,14 @@ async def execute_code_task(task: str, tier: str = "standard", working_dir: str 
     if tier not in MODEL_TIERS:
         tier = "standard"
     
+    # Use /tmp for tasks that don't need project access (much faster — avoids reading codebase)
+    effective_working_dir = working_dir if working_dir else "/tmp"
+    
     result = await run_claude_code(
         task=task,
         tier=tier,
-        working_dir=working_dir if working_dir else None,
+        working_dir=effective_working_dir,
+        max_turns=max_turns,
     )
     
     credits_saved = MODEL_TIERS[tier]["credits_saved"] if result["status"] == "success" else 0
