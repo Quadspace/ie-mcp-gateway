@@ -34,7 +34,7 @@ from starlette.responses import JSONResponse, HTMLResponse, Response
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "7.2.0"
+VERSION = "7.3.0"
 
 # Load .env from config directory
 HOME = Path(os.environ.get("HOME", "/home/ubuntu"))
@@ -516,6 +516,104 @@ async def api_memory(request: Request) -> Response:
     category = request.query_params.get("category")
     memories = memory_list(category)
     return JSONResponse(memories)
+
+
+@mcp.custom_route("/api/shell", methods=["POST"])
+async def api_shell(request: Request) -> Response:
+    """
+    Execute a shell command directly on the Mac Mini.
+    Protected by gateway token. Used for deployment and maintenance.
+    """
+    # Check auth token
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "").strip()
+    if token != GATEWAY_TOKEN:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+    
+    cmd = body.get("cmd", "")
+    cwd = body.get("cwd", str(HOME))
+    timeout = int(body.get("timeout", 30))
+    
+    if not cmd:
+        return JSONResponse({"error": "cmd is required"}, status_code=400)
+    
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return JSONResponse({
+            "exit_code": proc.returncode,
+            "stdout": stdout.decode("utf-8", errors="replace"),
+            "stderr": stderr.decode("utf-8", errors="replace"),
+        })
+    except asyncio.TimeoutError:
+        return JSONResponse({"error": f"Command timed out after {timeout}s"}, status_code=408)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@mcp.custom_route("/api/deploy", methods=["POST"])
+async def api_deploy(request: Request) -> Response:
+    """
+    Deploy the latest gateway code from GitHub.
+    Protected by gateway token.
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "").strip()
+    if token != GATEWAY_TOKEN:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    
+    gateway_dir = str(Path(__file__).parent.parent)
+    steps = []
+    
+    try:
+        # Step 1: git pull
+        proc = await asyncio.create_subprocess_shell(
+            "git pull origin master",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=gateway_dir,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        steps.append({
+            "step": "git pull",
+            "exit_code": proc.returncode,
+            "stdout": stdout.decode("utf-8", errors="replace"),
+            "stderr": stderr.decode("utf-8", errors="replace"),
+        })
+        
+        if proc.returncode != 0:
+            return JSONResponse({"status": "error", "steps": steps})
+        
+        # Step 2: pm2 restart
+        proc2 = await asyncio.create_subprocess_shell(
+            "pm2 restart ie-mcp-gateway",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout2, stderr2 = await asyncio.wait_for(proc2.communicate(), timeout=30)
+        steps.append({
+            "step": "pm2 restart",
+            "exit_code": proc2.returncode,
+            "stdout": stdout2.decode("utf-8", errors="replace"),
+            "stderr": stderr2.decode("utf-8", errors="replace"),
+        })
+        
+        return JSONResponse({"status": "deployed", "steps": steps})
+        
+    except asyncio.TimeoutError:
+        return JSONResponse({"status": "error", "error": "Timeout", "steps": steps}, status_code=408)
+    except Exception as e:
+        return JSONResponse({"status": "error", "error": str(e), "steps": steps}, status_code=500)
 
 
 @mcp.custom_route("/api/config", methods=["GET"])
