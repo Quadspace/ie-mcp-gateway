@@ -32,3 +32,9 @@ Thumbs.db
 
 # Test artifacts
 /tmp/proof.txt
+auth_key.txt
+*.json
+*_state.*
+*_findings.*
+test_*.py
+deploy.py

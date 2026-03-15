@@ -1,4 +1,0 @@
-The OAuth authorize endpoint redirected to:
-https://example.com/callback?code=ie-gateway-mike-2026&state=
-
-So the actual gateway API key is: ie-gateway-mike-2026
