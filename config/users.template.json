@@ -1,0 +1,31 @@
+{
+  "_comment": "Copy this file to ~/.config/ie-mcp/users.json and fill in your values.",
+  "_instructions": [
+    "1. For each person you want to give access to, create one entry in the 'users' array.",
+    "2. Create a dedicated Anthropic Workspace for each user at https://console.anthropic.com",
+    "3. Set a monthly spend limit on each Workspace in the Anthropic Console.",
+    "4. Generate an API key for each Workspace and paste it in 'anthropic_api_key'.",
+    "5. Generate a random 'gateway_api_key' for each user (e.g., run: openssl rand -hex 16).",
+    "6. Give each user ONLY their 'gateway_api_key'. Never share the Anthropic key directly."
+  ],
+  "users": [
+    {
+      "username": "mike",
+      "gateway_api_key": "gate-REPLACE-WITH-RANDOM-HEX-1",
+      "anthropic_api_key": "sk-ant-api03-YOUR-WORKSPACE-KEY-FOR-MIKE",
+      "notes": "Owner account — no spend limit"
+    },
+    {
+      "username": "user_a",
+      "gateway_api_key": "gate-REPLACE-WITH-RANDOM-HEX-2",
+      "anthropic_api_key": "sk-ant-api03-YOUR-WORKSPACE-KEY-FOR-USER-A",
+      "notes": "Workspace spend limit: $50/month"
+    },
+    {
+      "username": "sarah",
+      "gateway_api_key": "gate-REPLACE-WITH-RANDOM-HEX-3",
+      "anthropic_api_key": "sk-ant-api03-YOUR-WORKSPACE-KEY-FOR-SARAH",
+      "notes": "Workspace spend limit: $25/month — language site contributor"
+    }
+  ]
+}

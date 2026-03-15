@@ -1,0 +1,10 @@
+{
+  "users": [
+    {
+      "username": "mike",
+      "gateway_api_key": "test-gateway-key-mike",
+      "anthropic_api_key": "sk-ant-test",
+      "notes": "Test user"
+    }
+  ]
+}

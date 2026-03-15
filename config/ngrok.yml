@@ -1,0 +1,66 @@
+## IE.AI ngrok Configuration
+## This file configures two things:
+##   1. The tunnel that exposes your Mac Mini MCP server to Manus
+##   2. The AI Gateway that proxies your Anthropic API calls for observability
+##
+## Setup:
+##   1. Replace YOUR_NGROK_AUTHTOKEN with your token from https://dashboard.ngrok.com/get-started/your-authtoken
+##   2. Replace YOUR_STATIC_DOMAIN with your static domain (ngrok Personal plan, $10/mo)
+##      OR remove the "domain:" line to use a random URL (free tier)
+##   3. Run: ngrok start --all --config ~/.config/ie-mcp/ngrok.yml
+
+version: "3"
+agent:
+  authtoken: YOUR_NGROK_AUTHTOKEN
+
+## ─── Tunnel 1: MCP Gateway ────────────────────────────────────────────────────
+## This is the URL you paste into Manus Settings → Integrations → Custom MCP Servers
+## Manus connects here to call your Mac Mini's MCP tools.
+tunnels:
+  mcp-gateway:
+    proto: http
+    addr: 8765
+    domain: YOUR_STATIC_DOMAIN          # e.g. mike-ie-mcp.ngrok.app (remove line for free tier)
+    request_header:
+      add:
+        - "X-IE-Gateway: mac-mini"
+    ## Traffic Policy: Block requests without a valid Bearer token
+    ## This is your first line of defense — ngrok rejects unauthorized requests
+    ## before they even reach your Mac Mini.
+    policy:
+      inbound:
+        - name: "require-auth-header"
+          expressions:
+            - "!('authorization' in req.Headers)"
+          actions:
+            - type: deny
+              config:
+                status_code: 401
+
+## ─── AI Gateway: Anthropic API Proxy ─────────────────────────────────────────
+## ONLY configure this section after you receive ngrok AI Gateway access.
+## This routes your Mac Mini's Anthropic API calls through ngrok's AI Gateway
+## so you get full observability: token counts, latency, cost per call.
+##
+## How to activate:
+##   1. Go to https://dashboard.ngrok.com/ai-gateway
+##   2. Create a new AI Gateway endpoint
+##   3. Add your Anthropic API key to ngrok Vaults (Settings → Secrets)
+##   4. Copy the AI Gateway endpoint URL
+##   5. Add to your ~/.config/ie-mcp/.env file:
+##      NGROK_AI_GATEWAY_URL=https://YOUR-AI-GATEWAY-ENDPOINT.ngrok.app
+##
+## The gateway.py server will automatically route Claude API calls through
+## this URL when NGROK_AI_GATEWAY_URL is set in your .env file.
+##
+## What you see in the ngrok AI Gateway dashboard:
+##   - Every Anthropic API call with full request/response
+##   - Token counts per call (input + output)
+##   - Latency per call
+##   - Cost per call (estimated)
+##   - Error rate and retries
+##   - Model usage breakdown (Sonnet vs Opus)
+##
+## Cost: Included in your ngrok AI Gateway early access plan.
+## The $99/month Traffic Inspector is NOT required — the AI Gateway
+## dashboard shows all AI-specific metrics for free.

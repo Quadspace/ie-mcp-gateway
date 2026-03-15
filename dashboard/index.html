@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IE.AI MCP Gateway</title>
+<style>
+  :root {
+    --bg: #080808; --surface: #111; --surface2: #1a1a1a; --border: #222;
+    --text: #e8e8e8; --text2: #888; --accent: #9ADD26; --accent2: #7BC01A;
+    --success: #22c55e; --error: #ef4444; --warning: #f59e0b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+  .header h1 { font-size: 20px; font-weight: 700; color: var(--accent); }
+  .header h1 span { color: var(--text2); font-weight: 400; font-size: 13px; margin-left: 8px; }
+  .header .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text2); }
+  .header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+
+  .endpoint-banner { background: var(--surface2); border: 1px solid var(--border); margin: 16px 32px 0; padding: 12px 16px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; }
+  .endpoint-banner .label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; }
+  .endpoint-banner .url { font-family: 'SF Mono', monospace; font-size: 13px; color: var(--accent); margin-top: 2px; }
+  .endpoint-banner button { background: var(--accent); color: #000; border: none; padding: 6px 14px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .endpoint-banner button:hover { background: var(--accent2); }
+
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 16px 32px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+  .card .label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .card .value { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .card .sub { font-size: 12px; color: var(--text2); margin-top: 4px; }
+
+  .section-header { padding: 8px 32px; display: flex; align-items: center; justify-content: space-between; }
+  .section-header h2 { font-size: 13px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+
+  .savings-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; padding: 0 32px 16px; }
+  .savings-card { background: linear-gradient(135deg, #0a1a00 0%, #111 100%); border: 1px solid #1a3a00; border-radius: 8px; padding: 20px; }
+  .savings-card .value { font-size: 32px; font-weight: 700; color: var(--accent); }
+
+  .tier-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; padding: 0 32px 16px; }
+  .tier-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+  .tier-card .tier-name { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .tier-card .tier-count { font-size: 24px; font-weight: 700; }
+  .tier-card .tier-cost { font-size: 12px; color: var(--text2); margin-top: 4px; }
+
+  .table-wrap { padding: 0 32px 24px; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 8px; overflow: hidden; }
+  th { background: var(--surface2); padding: 10px 14px; text-align: left; font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+  td { padding: 10px 14px; border-top: 1px solid var(--border); font-size: 13px; }
+  tr:hover td { background: rgba(154, 221, 38, 0.03); }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-success { background: rgba(34, 197, 94, 0.15); color: var(--success); }
+  .badge-error { background: rgba(239, 68, 68, 0.15); color: var(--error); }
+  .badge-standard { background: rgba(154, 221, 38, 0.15); color: var(--accent); }
+  .badge-power { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+
+  .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+  .modal-overlay.active { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 80%; max-width: 900px; max-height: 80vh; display: flex; flex-direction: column; }
+  .modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .modal-header h3 { font-size: 15px; color: var(--text); }
+  .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+  .modal-body pre { font-family: 'SF Mono', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--text); }
+  .modal-actions { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
+  .btn { padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--border); }
+
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--accent); color: #000; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity 0.3s; z-index: 2000; }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+    .savings-grid, .tier-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>IE.AI <span>MCP Gateway <span id="versionBadge">v7.0.0</span></span></h1>
+  <div class="status"><div class="dot" id="statusDot"></div><span id="statusText">Connecting...</span></div>
+</div>
+
+<div class="endpoint-banner">
+  <div>
+    <div class="label">MCP Endpoint</div>
+    <div class="url" id="mcpUrl">Loading...</div>
+  </div>
+  <button onclick="copyEndpoint()">Copy URL</button>
+</div>
+
+<div class="section-header" style="padding-top:16px"><h2>System Health</h2></div>
+<div class="grid">
+  <div class="card">
+    <div class="label">Total Tasks</div>
+    <div class="value" id="totalTasks">--</div>
+  </div>
+  <div class="card">
+    <div class="label">Successful</div>
+    <div class="value" id="successCount" style="color:var(--success)">--</div>
+  </div>
+  <div class="card">
+    <div class="label">Success Rate</div>
+    <div class="value" id="successRate">--</div>
+  </div>
+  <div class="card">
+    <div class="label">Claude CLI</div>
+    <div class="value" id="claudeStatus" style="font-size:16px">--</div>
+  </div>
+</div>
+
+<div class="section-header"><h2>Model Tier Usage</h2></div>
+<div class="tier-grid">
+  <div class="tier-card">
+    <div class="tier-name" style="color:var(--accent)">Standard (Claude Sonnet)</div>
+    <div class="tier-count" id="tierStandard" style="color:var(--accent)">--</div>
+    <div class="tier-cost">450 credits saved per task</div>
+  </div>
+  <div class="tier-card">
+    <div class="tier-name" style="color:#a855f7">Power (Claude Opus)</div>
+    <div class="tier-count" id="tierPower" style="color:#a855f7">--</div>
+    <div class="tier-cost">900 credits saved per task</div>
+  </div>
+</div>
+
+<div class="section-header"><h2>Manus Credits Saved</h2></div>
+<div class="savings-grid">
+  <div class="savings-card">
+    <div class="label">Total Credits Saved</div>
+    <div class="value" id="creditsSaved">--</div>
+    <div class="sub" id="savingsTasks">0 tasks routed</div>
+  </div>
+  <div class="savings-card">
+    <div class="label">Execution Engine</div>
+    <div class="value" style="font-size:18px;color:var(--text)">Claude Code CLI</div>
+    <div class="sub">Full coding agent with filesystem access</div>
+  </div>
+</div>
+
+<div class="section-header"><h2>Recent Tasks</h2></div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Time</th><th>Tier</th><th>Model</th><th>Status</th><th>Duration</th><th>Credits</th><th></th></tr>
+    </thead>
+    <tbody id="historyBody">
+      <tr><td colspan="7" style="text-align:center;color:var(--text2)">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="modalTitle">Task Output</h3>
+      <button class="btn btn-secondary" onclick="document.getElementById('modalOverlay').classList.remove('active')">Close</button>
+    </div>
+    <div class="modal-body">
+      <pre id="modalContent"></pre>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="copyOutput()">Copy Output</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const BASE = window.location.origin;
+let allTasks = [];
+
+async function refresh() {
+  try {
+    const health = await fetch(`${BASE}/health`).then(r => r.json());
+    document.getElementById('statusDot').style.background = health.status === 'ok' ? '#22c55e' : '#ef4444';
+    document.getElementById('statusText').textContent = health.status === 'ok' ? 'Online' : 'Error';
+    document.getElementById('versionBadge').textContent = `v${health.version}`;
+    document.getElementById('mcpUrl').textContent = `https://${health.ngrok_domain || 'dinoonemcp.ngrok.app'}/mcp`;
+    document.getElementById('claudeStatus').textContent = health.claude_bin_exists ? 'Ready' : 'Not Found';
+    document.getElementById('claudeStatus').style.color = health.claude_bin_exists ? '#22c55e' : '#ef4444';
+
+    const stats = health.stats || {};
+    document.getElementById('totalTasks').textContent = stats.total_tasks || 0;
+    document.getElementById('successCount').textContent = stats.successful || 0;
+    const rate = stats.total_tasks > 0 ? ((stats.successful / stats.total_tasks) * 100).toFixed(1) : '0';
+    document.getElementById('successRate').textContent = `${rate}%`;
+    document.getElementById('creditsSaved').textContent = (stats.total_credits_saved || 0).toLocaleString();
+    document.getElementById('savingsTasks').textContent = `${stats.successful || 0} tasks routed`;
+  } catch (e) {
+    document.getElementById('statusDot').style.background = '#ef4444';
+    document.getElementById('statusText').textContent = 'Offline';
+  }
+}
+
+async function fetchTasks() {
+  try {
+    const tasks = await fetch(`${BASE}/api/tasks?limit=50`).then(r => r.json());
+    allTasks = tasks;
+    const tbody = document.getElementById('historyBody');
+
+    // Count tiers
+    let stdCount = 0, pwrCount = 0;
+    tasks.forEach(t => {
+      if (t.tier === 'standard') stdCount++;
+      else if (t.tier === 'power') pwrCount++;
+    });
+    document.getElementById('tierStandard').textContent = stdCount;
+    document.getElementById('tierPower').textContent = pwrCount;
+
+    if (tasks.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">No tasks yet. Send a task via Manus to get started.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = tasks.map((t, i) => `
+      <tr>
+        <td>${t.timestamp || '--'}</td>
+        <td><span class="badge badge-${t.tier || 'standard'}">${(t.tier || 'standard').toUpperCase()}</span></td>
+        <td>${t.model || '--'}</td>
+        <td><span class="badge badge-${t.status}">${t.status}</span></td>
+        <td>${t.duration_ms ? (t.duration_ms / 1000).toFixed(1) + 's' : '--'}</td>
+        <td>${t.credits_saved || 0}</td>
+        <td><button class="btn btn-secondary" style="padding:4px 10px;font-size:11px" onclick="showTask(${i})">View</button></td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    console.error('Failed to fetch tasks:', e);
+  }
+}
+
+function showTask(i) {
+  const t = allTasks[i];
+  if (!t) return;
+  document.getElementById('modalTitle').textContent = `Task ${t.task_id || '#' + (i+1)} — ${(t.tier || 'standard').toUpperCase()} (${t.model || '?'})`;
+  let content = '';
+  if (t.prompt_preview) content += `PROMPT:\n${t.prompt_preview}\n\n`;
+  if (t.output) content += `OUTPUT:\n${t.output}`;
+  else if (t.error_message) content += `ERROR:\n${t.error_message}`;
+  else content += 'No output available.';
+  document.getElementById('modalContent').textContent = content;
+  document.getElementById('modalOverlay').classList.add('active');
+}
+
+function closeModal(e) {
+  if (e.target === document.getElementById('modalOverlay')) {
+    document.getElementById('modalOverlay').classList.remove('active');
+  }
+}
+
+function copyOutput() {
+  const text = document.getElementById('modalContent').textContent;
+  navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard'));
+}
+
+function copyEndpoint() {
+  const url = document.getElementById('mcpUrl').textContent;
+  navigator.clipboard.writeText(url).then(() => showToast('MCP URL copied'));
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+refresh();
+fetchTasks();
+setInterval(refresh, 10000);
+setInterval(fetchTasks, 15000);
+</script>
+</body>
+</html>
