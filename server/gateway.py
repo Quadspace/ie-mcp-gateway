@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse, HTMLResponse, Response
 
@@ -283,6 +284,9 @@ mcp = FastMCP(
     host="0.0.0.0",
     port=GATEWAY_PORT,
     json_response=True,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
+    ),
 )
 
 
