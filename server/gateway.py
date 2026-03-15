@@ -34,7 +34,7 @@ from starlette.responses import JSONResponse, HTMLResponse, Response
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "7.0.0"
+VERSION = "7.1.0"
 
 # Load .env from config directory
 HOME = Path(os.environ.get("HOME", "/home/ubuntu"))
@@ -170,7 +170,7 @@ def get_stats():
 
 # ─── Claude Code Execution Engine ─────────────────────────────────────────────
 
-async def run_claude_code(task: str, tier: str = "standard", working_dir: str = None, max_turns: int = 50) -> dict:
+async def run_claude_code(task: str, tier: str = "standard", working_dir: str = None, max_turns: int = 20) -> dict:
     """
     Execute a task using the Claude Code CLI.
     
@@ -186,18 +186,33 @@ async def run_claude_code(task: str, tier: str = "standard", working_dir: str = 
     model = tier_config["model"]
     
     # Environment: route claude CLI through OpenRouter
+    # Ensure PATH includes the claude binary's directory and common macOS paths
+    claude_dir = str(Path(CLAUDE_BIN).parent)
+    extra_paths = [
+        claude_dir,
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        str(HOME / ".local" / "bin"),
+        str(HOME / ".nvm" / "versions" / "node"),  # nvm users
+    ]
+    current_path = os.environ.get("PATH", "/usr/bin:/bin")
+    full_path = ":".join(extra_paths) + ":" + current_path
+    
     env = {
         **os.environ,
+        "PATH": full_path,
         "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
         "ANTHROPIC_AUTH_TOKEN": OPENROUTER_API_KEY,
         "ANTHROPIC_API_KEY": "",  # MUST be empty string to prevent Anthropic auth
     }
     
     # Build the command
+    # NOTE: Do NOT pass --model flag when using OpenRouter — OpenRouter's Anthropic Skin
+    # handles model routing automatically via ANTHROPIC_BASE_URL. Passing --model can
+    # cause Claude Code to attempt Anthropic-specific model validation and hang.
     cmd = [
         CLAUDE_BIN,
         "-p", task,                         # Print mode (non-interactive)
-        "--model", model,                   # Model selection
         "--output-format", "text",          # Plain text output
         "--dangerously-skip-permissions",   # Skip permission prompts for automation
         "--max-turns", str(max_turns),      # Safety limit on agentic turns
@@ -235,17 +250,23 @@ async def run_claude_code(task: str, tier: str = "standard", working_dir: str = 
             }
         
         duration_ms = int((time.time() - start) * 1000)
-        output = stdout.decode("utf-8", errors="replace").strip()
-        error_output = stderr.decode("utf-8", errors="replace").strip()
+        stdout_text = stdout.decode("utf-8", errors="replace").strip()
+        stderr_text = stderr.decode("utf-8", errors="replace").strip()
+        
+        # Combine stdout and stderr — Claude Code writes progress to stderr and result to stdout
+        # If stdout is empty but stderr has content, use stderr as the output
+        output = stdout_text if stdout_text else stderr_text
+        if not output:
+            output = f"Task completed (no output captured). Exit code: {proc.returncode}"
         
         if proc.returncode != 0:
-            logger.error(f"Claude CLI failed (exit {proc.returncode}): {error_output[:500]}")
+            logger.error(f"Claude CLI failed (exit {proc.returncode}): {stderr_text[:500]}")
             return {
-                "output": output or error_output,
+                "output": output,
                 "duration_ms": duration_ms,
                 "model": model,
                 "status": "error",
-                "error": f"Exit code {proc.returncode}: {error_output[:500]}",
+                "error": f"Exit code {proc.returncode}: {stderr_text[:200]}",
             }
         
         logger.info(f"Claude CLI completed in {duration_ms}ms, output length: {len(output)}")
@@ -530,9 +551,35 @@ async def oauth_token(request: Request) -> Response:
     })
 
 
+# ─── Self-Healing: Patch Claude Code settings ────────────────────────────────
+
+def patch_claude_settings():
+    """
+    Remove any hardcoded 'model' from ~/.claude/settings.json.
+    This prevents local Ollama models from overriding OpenRouter routing.
+    Called once at startup.
+    """
+    settings_path = HOME / ".claude" / "settings.json"
+    if not settings_path.exists():
+        return
+    try:
+        with open(settings_path, "r") as f:
+            settings = json.load(f)
+        if "model" in settings:
+            removed_model = settings.pop("model")
+            with open(settings_path, "w") as f:
+                json.dump(settings, f, indent=2)
+            logger.info(f"Patched ~/.claude/settings.json: removed hardcoded model '{removed_model}'")
+        else:
+            logger.info("~/.claude/settings.json: no hardcoded model found (clean)")
+    except Exception as e:
+        logger.warning(f"Could not patch ~/.claude/settings.json: {e}")
+
+
 # ─── Entry Point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    patch_claude_settings()
     logger.info(f"Starting IE.AI MCP Gateway v{VERSION}")
     logger.info(f"Claude CLI: {CLAUDE_BIN}")
     logger.info(f"Project path: {PROJECT_PATH}")
