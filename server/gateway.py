@@ -446,6 +446,8 @@ async def health(request: Request) -> Response:
         "version": VERSION,
         "service": "IE.AI MCP Gateway",
         "anthropic_configured": bool(ANTHROPIC_API_KEY),
+        "claude_bin": CLAUDE_BIN,
+        "claude_exists": Path(CLAUDE_BIN).exists(),
         "ngrok_domain": NGROK_DOMAIN,
         "project_path": PROJECT_PATH,
         "stats": {
