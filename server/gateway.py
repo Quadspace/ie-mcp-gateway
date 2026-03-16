@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.0.0"
+VERSION = "8.1.0"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -60,6 +60,8 @@ GATEWAY_TOKEN      = os.environ.get("GATEWAY_TOKEN", "ie-gateway-mike-2026")
 PROJECT_PATH       = os.environ.get("PROJECT_PATH", str(HOME / "Documents" / "Dino_One_MCP"))
 NGROK_DOMAIN       = os.environ.get("NGROK_DOMAIN", "dinoonemcp.ngrok.app")
 GATEWAY_PORT       = int(os.environ.get("MCP_PORT", "8765"))
+CLAUDE_BIN         = os.environ.get("CLAUDE_BIN", str(HOME / ".local" / "bin" / "claude"))
+EMPTY_MCP_CFG      = CONFIG_DIR / "empty-mcp.json"
 DB_PATH            = CONFIG_DIR / "gateway.db"
 DASHBOARD_DIR      = Path(__file__).parent.parent / "dashboard"
 
@@ -95,6 +97,10 @@ def init_db():
     conn.commit()
     conn.close()
     logger.info(f"Database ready: {DB_PATH}")
+    # Write empty MCP config so Claude Code skips slow MCP server initialization
+    if not EMPTY_MCP_CFG.exists():
+        EMPTY_MCP_CFG.write_text('{"mcpServers":{}}')
+        logger.info(f"Created empty MCP config: {EMPTY_MCP_CFG}")
 
 def log_task(task_id, tool, tier, model, prompt, output, duration_ms, status, error=None):
     conn = get_db()
@@ -333,6 +339,92 @@ async def run_anthropic_completion(
         duration_ms = int((time.time() - start) * 1000)
         msg = f"Unexpected error calling Anthropic API: {e}"
         log_task(task_id, "run_anthropic_completion", tier, model, prompt, msg, duration_ms, "error", str(e))
+        return msg
+
+
+# ─── Tool 5: execute_code_task ───────────────────────────────────────────────
+@mcp.tool()
+async def execute_code_task(
+    task: str,
+    tier: str = "standard",
+    working_dir: str = "",
+    max_turns: int = 10,
+) -> str:
+    """
+    Execute a coding task using Claude Code CLI on the Mac Mini.
+    Use this for tasks that need to read/write files in the project codebase.
+    For simple questions, use run_anthropic_completion instead.
+
+    Args:
+        task: The coding task description
+        tier: "standard" (Sonnet, fast) or "power" (Opus, best quality)
+        working_dir: Project directory path (defaults to PROJECT_PATH)
+        max_turns: Max Claude Code iterations, default 10
+
+    Returns:
+        Claude Code's output as a string.
+    """
+    if not Path(CLAUDE_BIN).exists():
+        return f"Claude CLI not found at {CLAUDE_BIN}. Install: npm install -g @anthropic-ai/claude-code"
+
+    if not ANTHROPIC_API_KEY:
+        return "Error: ANTHROPIC_API_KEY is not configured. Set it in ~/.config/ie-mcp/.env"
+
+    task_id = uuid.uuid4().hex[:8]
+    start = time.time()
+    cwd = working_dir or PROJECT_PATH
+    timeout = 300 if tier == "power" else 180
+
+    logger.info(f"[{task_id}] execute_code_task: tier={tier}, cwd={cwd}")
+    logger.info(f"[{task_id}] Task preview: {task[:150]}")
+
+    # Pass our API key directly — no OAuth, no OpenRouter
+    env = os.environ.copy()
+    env["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
+    # Unset any OpenRouter or proxy settings
+    env.pop("ANTHROPIC_BASE_URL", None)
+    env.pop("OPENROUTER_API_KEY", None)
+
+    cmd = [
+        CLAUDE_BIN,
+        "-p", task,
+        "--output-format", "text",
+        "--dangerously-skip-permissions",
+        "--max-turns", str(max_turns),
+        "--mcp-config", str(EMPTY_MCP_CFG),
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+            env=env,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            duration_ms = int((time.time() - start) * 1000)
+            msg = f"Task timed out after {timeout}s. Try a simpler task or use tier='power' for complex work."
+            log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "timeout", msg)
+            return msg
+
+        duration_ms = int((time.time() - start) * 1000)
+        out = stdout.decode("utf-8", errors="replace").strip()
+        err = stderr.decode("utf-8", errors="replace").strip()
+        output = out or err or f"Task completed with exit code {proc.returncode} (no output captured)"
+        status = "success" if proc.returncode == 0 else "error"
+        log_task(task_id, "execute_code_task", tier, tier, task, output, duration_ms, status)
+        logger.info(f"[{task_id}] Completed in {duration_ms}ms, exit={proc.returncode}")
+        return output
+
+    except Exception as e:
+        duration_ms = int((time.time() - start) * 1000)
+        msg = f"Error running Claude Code: {e}"
+        log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "error", str(e))
         return msg
 
 
