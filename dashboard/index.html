@@ -3,277 +3,397 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IE.AI MCP Gateway</title>
+<title>IE.AI — Manus Command Center</title>
 <style>
   :root {
-    --bg: #080808; --surface: #111; --surface2: #1a1a1a; --border: #222;
-    --text: #e8e8e8; --text2: #888; --accent: #9ADD26; --accent2: #7BC01A;
-    --success: #22c55e; --error: #ef4444; --warning: #f59e0b;
+    --bg:        #070707;
+    --surface:   #0f0f0f;
+    --surface2:  #161616;
+    --surface3:  #1e1e1e;
+    --border:    #242424;
+    --border2:   #2e2e2e;
+    --text:      #f0f0f0;
+    --text2:     #888;
+    --text3:     #555;
+    --accent:    #9ADD26;
+    --accent2:   #7BC01A;
+    --accent3:   #c8f56a;
+    --success:   #22c55e;
+    --error:     #ef4444;
+    --warning:   #f59e0b;
+    --info:      #3b82f6;
+    --radius:    8px;
+    --radius-lg: 12px;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
 
-  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
-  .header h1 { font-size: 20px; font-weight: 700; color: var(--accent); }
-  .header h1 span { color: var(--text2); font-weight: 400; font-size: 13px; margin-left: 8px; }
-  .header .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text2); }
-  .header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+  /* Header */
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 32px; height: 60px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-mark { width: 32px; height: 32px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; color: #000; letter-spacing: -0.5px; }
+  .logo-text { font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+  .logo-text span { color: var(--accent); }
+  .header-divider { width: 1px; height: 24px; background: var(--border2); }
+  .header-subtitle { font-size: 12px; color: var(--text2); font-weight: 500; }
+  .header-right { display: flex; align-items: center; gap: 20px; }
+  .status-pill { display: flex; align-items: center; gap: 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; font-size: 12px; color: var(--text2); }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); animation: pulse 2s infinite; }
+  .status-dot.offline { background: var(--error); animation: none; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .version-tag { font-size: 11px; color: var(--text3); font-family: 'SF Mono', 'Fira Code', monospace; }
+  .refresh-indicator { font-size: 10px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
+  .refresh-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse 3s infinite; }
 
-  .endpoint-banner { background: var(--surface2); border: 1px solid var(--border); margin: 16px 32px 0; padding: 12px 16px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; }
-  .endpoint-banner .label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; }
-  .endpoint-banner .url { font-family: 'SF Mono', monospace; font-size: 13px; color: var(--accent); margin-top: 2px; }
-  .endpoint-banner button { background: var(--accent); color: #000; border: none; padding: 6px 14px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; }
-  .endpoint-banner button:hover { background: var(--accent2); }
+  /* Endpoint Banner */
+  .endpoint-banner { background: linear-gradient(135deg, #0a1500 0%, var(--surface2) 100%); border: 1px solid #1a3000; margin: 20px 32px 0; padding: 14px 20px; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .endpoint-label { font-size: 10px; color: var(--accent2); text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600; margin-bottom: 4px; }
+  .endpoint-url { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; color: var(--accent); font-weight: 500; }
+  .copy-btn { background: var(--accent); color: #000; border: none; padding: 7px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background 0.15s; letter-spacing: 0.3px; }
+  .copy-btn:hover { background: var(--accent3); }
+  .copy-btn.copied { background: var(--success); color: #fff; }
 
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 16px 32px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
-  .card .label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-  .card .value { font-size: 28px; font-weight: 700; color: var(--accent); }
-  .card .sub { font-size: 12px; color: var(--text2); margin-top: 4px; }
+  /* Main */
+  .main { padding: 20px 32px 40px; }
 
-  .section-header { padding: 8px 32px; display: flex; align-items: center; justify-content: space-between; }
-  .section-header h2 { font-size: 13px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+  /* Stats Grid */
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; position: relative; overflow: hidden; }
+  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); opacity: 0.3; }
+  .stat-card.highlight::before { opacity: 1; }
+  .stat-label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-bottom: 10px; }
+  .stat-value { font-size: 32px; font-weight: 800; color: var(--accent); line-height: 1; letter-spacing: -1px; }
+  .stat-sub { font-size: 11px; color: var(--text3); margin-top: 6px; }
 
-  .savings-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; padding: 0 32px 16px; }
-  .savings-card { background: linear-gradient(135deg, #0a1a00 0%, #111 100%); border: 1px solid #1a3a00; border-radius: 8px; padding: 20px; }
-  .savings-card .value { font-size: 32px; font-weight: 700; color: var(--accent); }
+  /* Two-col */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .section-title { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
+  .section-badge { font-size: 10px; color: var(--text3); background: var(--surface2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 10px; }
 
-  .tier-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; padding: 0 32px 16px; }
-  .tier-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
-  .tier-card .tier-name { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-  .tier-card .tier-count { font-size: 24px; font-weight: 700; }
-  .tier-card .tier-cost { font-size: 12px; color: var(--text2); margin-top: 4px; }
+  /* Tools Panel */
+  .tools-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
+  .tool-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .tool-item:last-child { border-bottom: none; }
+  .tool-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+  .tool-name { font-size: 13px; font-weight: 600; color: var(--text); font-family: 'SF Mono', 'Fira Code', monospace; }
+  .tool-desc { font-size: 11px; color: var(--text2); margin-top: 1px; }
+  .tool-status { margin-left: auto; font-size: 10px; color: var(--success); background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2); padding: 2px 8px; border-radius: 10px; font-weight: 600; letter-spacing: 0.3px; }
 
-  .table-wrap { padding: 0 32px 24px; }
-  table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 8px; overflow: hidden; }
-  th { background: var(--surface2); padding: 10px 14px; text-align: left; font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
-  td { padding: 10px 14px; border-top: 1px solid var(--border); font-size: 13px; }
-  tr:hover td { background: rgba(154, 221, 38, 0.03); }
+  /* System Panel */
+  .system-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
+  .sys-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .sys-row:last-child { border-bottom: none; }
+  .sys-key { color: var(--text2); }
+  .sys-val { color: var(--text); font-weight: 500; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; }
+  .sys-val.ok { color: var(--success); }
+  .sys-val.warn { color: var(--warning); }
+  .sys-val.err { color: var(--error); }
 
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-  .badge-success { background: rgba(34, 197, 94, 0.15); color: var(--success); }
-  .badge-error { background: rgba(239, 68, 68, 0.15); color: var(--error); }
-  .badge-standard { background: rgba(154, 221, 38, 0.15); color: var(--accent); }
-  .badge-power { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+  /* Architecture Flow */
+  .arch-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px; }
+  .arch-flow { display: flex; align-items: center; justify-content: center; gap: 0; flex-wrap: wrap; margin-top: 16px; }
+  .arch-node { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--radius); padding: 10px 16px; text-align: center; min-width: 100px; }
+  .arch-node .node-icon { font-size: 18px; margin-bottom: 4px; }
+  .arch-node .node-label { font-size: 11px; font-weight: 700; color: var(--text); }
+  .arch-node .node-sub { font-size: 9px; color: var(--text3); margin-top: 2px; }
+  .arch-node.active { border-color: var(--accent); background: rgba(154,221,38,0.05); }
+  .arch-node.active .node-label { color: var(--accent); }
+  .arch-arrow { color: var(--accent2); font-size: 18px; padding: 0 6px; opacity: 0.7; }
 
-  .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
-  .modal-overlay.active { display: flex; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 80%; max-width: 900px; max-height: 80vh; display: flex; flex-direction: column; }
-  .modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-  .modal-header h3 { font-size: 15px; color: var(--text); }
-  .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
-  .modal-body pre { font-family: 'SF Mono', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--text); }
-  .modal-actions { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
-  .btn { padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; }
-  .btn-primary { background: var(--accent); color: #000; }
-  .btn-primary:hover { background: var(--accent2); }
-  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
-  .btn-secondary:hover { background: var(--border); }
+  /* Table */
+  .table-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  .table-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: var(--surface2); padding: 10px 16px; text-align: left; font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; border-bottom: 1px solid var(--border); }
+  td { padding: 11px 16px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text2); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; }
+  .badge-success { background: rgba(34,197,94,0.12); color: var(--success); border: 1px solid rgba(34,197,94,0.2); }
+  .badge-error   { background: rgba(239,68,68,0.12);  color: var(--error);   border: 1px solid rgba(239,68,68,0.2); }
+  .badge-timeout { background: rgba(245,158,11,0.12); color: var(--warning); border: 1px solid rgba(245,158,11,0.2); }
+  .badge-pending { background: rgba(59,130,246,0.12); color: var(--info);    border: 1px solid rgba(59,130,246,0.2); }
+  .tool-tag { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: var(--accent2); background: rgba(154,221,38,0.08); border: 1px solid rgba(154,221,38,0.15); padding: 2px 7px; border-radius: 5px; }
+  .duration { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: var(--text3); }
+  .prompt-preview { color: var(--text2); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .empty-state { text-align: center; padding: 48px 20px; color: var(--text3); }
+  .empty-state .icon { font-size: 32px; margin-bottom: 12px; }
+  .empty-state p { font-size: 13px; }
 
-  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--accent); color: #000; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity 0.3s; z-index: 2000; }
-  .toast.show { opacity: 1; }
-
-  @media (max-width: 768px) {
-    .grid { grid-template-columns: repeat(2, 1fr); }
-    .savings-grid, .tier-grid { grid-template-columns: 1fr; }
-  }
+  @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } .two-col { grid-template-columns: 1fr; } }
+  @media (max-width: 700px) { .header { padding: 0 16px; } .main { padding: 12px 16px 32px; } .endpoint-banner { flex-direction: column; align-items: flex-start; margin: 12px 16px 0; } .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; } }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>IE.AI <span>MCP Gateway <span id="versionBadge">v7.0.0</span></span></h1>
-  <div class="status"><div class="dot" id="statusDot"></div><span id="statusText">Connecting...</span></div>
-</div>
+<header class="header">
+  <div class="header-left">
+    <div class="logo">
+      <div class="logo-mark">IE</div>
+      <div class="logo-text"><span>IE.AI</span> Manus Command Center</div>
+    </div>
+    <div class="header-divider"></div>
+    <div class="header-subtitle">Mac Mini Gateway</div>
+  </div>
+  <div class="header-right">
+    <div class="refresh-indicator">
+      <div class="refresh-dot"></div>
+      <span id="last-refresh">Connecting...</span>
+    </div>
+    <div class="status-pill">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Checking...</span>
+    </div>
+    <span class="version-tag" id="version-tag">v8.0.0</span>
+  </div>
+</header>
 
 <div class="endpoint-banner">
   <div>
-    <div class="label">MCP Endpoint</div>
-    <div class="url" id="mcpUrl">Loading...</div>
+    <div class="endpoint-label">Manus MCP Endpoint</div>
+    <div class="endpoint-url" id="mcp-url">https://dinoonemcp.ngrok.app/mcp</div>
   </div>
-  <button onclick="copyEndpoint()">Copy URL</button>
+  <button class="copy-btn" id="copy-btn" onclick="copyEndpoint()">Copy Endpoint</button>
 </div>
 
-<div class="section-header" style="padding-top:16px"><h2>System Health</h2></div>
-<div class="grid">
-  <div class="card">
-    <div class="label">Total Tasks</div>
-    <div class="value" id="totalTasks">--</div>
-  </div>
-  <div class="card">
-    <div class="label">Successful</div>
-    <div class="value" id="successCount" style="color:var(--success)">--</div>
-  </div>
-  <div class="card">
-    <div class="label">Success Rate</div>
-    <div class="value" id="successRate">--</div>
-  </div>
-  <div class="card">
-    <div class="label">Claude CLI</div>
-    <div class="value" id="claudeStatus" style="font-size:16px">--</div>
-  </div>
-</div>
+<main class="main">
 
-<div class="section-header"><h2>Model Tier Usage</h2></div>
-<div class="tier-grid">
-  <div class="tier-card">
-    <div class="tier-name" style="color:var(--accent)">Standard (Claude Sonnet)</div>
-    <div class="tier-count" id="tierStandard" style="color:var(--accent)">--</div>
-    <div class="tier-cost">450 credits saved per task</div>
-  </div>
-  <div class="tier-card">
-    <div class="tier-name" style="color:#a855f7">Power (Claude Opus)</div>
-    <div class="tier-count" id="tierPower" style="color:#a855f7">--</div>
-    <div class="tier-cost">900 credits saved per task</div>
-  </div>
-</div>
-
-<div class="section-header"><h2>Manus Credits Saved</h2></div>
-<div class="savings-grid">
-  <div class="savings-card">
-    <div class="label">Total Credits Saved</div>
-    <div class="value" id="creditsSaved">--</div>
-    <div class="sub" id="savingsTasks">0 tasks routed</div>
-  </div>
-  <div class="savings-card">
-    <div class="label">Execution Engine</div>
-    <div class="value" style="font-size:18px;color:var(--text)">Claude Code CLI</div>
-    <div class="sub">Full coding agent with filesystem access</div>
-  </div>
-</div>
-
-<div class="section-header"><h2>Recent Tasks</h2></div>
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Time</th><th>Tier</th><th>Model</th><th>Status</th><th>Duration</th><th>Credits</th><th></th></tr>
-    </thead>
-    <tbody id="historyBody">
-      <tr><td colspan="7" style="text-align:center;color:var(--text2)">Loading...</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
-  <div class="modal" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <h3 id="modalTitle">Task Output</h3>
-      <button class="btn btn-secondary" onclick="document.getElementById('modalOverlay').classList.remove('active')">Close</button>
+  <div class="stats-grid">
+    <div class="stat-card highlight">
+      <div class="stat-label">Total Tasks</div>
+      <div class="stat-value" id="stat-total">—</div>
+      <div class="stat-sub">All time</div>
     </div>
-    <div class="modal-body">
-      <pre id="modalContent"></pre>
+    <div class="stat-card">
+      <div class="stat-label">Successful</div>
+      <div class="stat-value" id="stat-success">—</div>
+      <div class="stat-sub" id="stat-success-pct">— success rate</div>
     </div>
-    <div class="modal-actions">
-      <button class="btn btn-primary" onclick="copyOutput()">Copy Output</button>
+    <div class="stat-card">
+      <div class="stat-label">Avg Duration</div>
+      <div class="stat-value" id="stat-avg-dur">—</div>
+      <div class="stat-sub">seconds per task</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Last Tool Used</div>
+      <div class="stat-value" id="stat-last-tool" style="font-size:15px; padding-top:8px; word-break:break-all;">—</div>
+      <div class="stat-sub" id="stat-last-time">—</div>
     </div>
   </div>
-</div>
 
-<div class="toast" id="toast"></div>
+  <div class="arch-panel">
+    <div class="section-header">
+      <div class="section-title">Architecture — How Manus Controls Your Mac Mini</div>
+    </div>
+    <div class="arch-flow">
+      <div class="arch-node active">
+        <div class="node-icon">🧠</div>
+        <div class="node-label">Manus</div>
+        <div class="node-sub">AI Orchestrator</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="node-icon">🌐</div>
+        <div class="node-label">ngrok</div>
+        <div class="node-sub">Secure Tunnel</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node active">
+        <div class="node-icon">⚡</div>
+        <div class="node-label">Gateway v8</div>
+        <div class="node-sub">Tool Server</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="node-icon">🖥️</div>
+        <div class="node-label">Mac Mini</div>
+        <div class="node-sub">Shell / Files</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node active">
+        <div class="node-icon">🤖</div>
+        <div class="node-label">Anthropic</div>
+        <div class="node-sub">Direct API</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="tools-panel">
+      <div class="section-header">
+        <div class="section-title">Available MCP Tools</div>
+        <div class="section-badge">4 tools</div>
+      </div>
+      <div class="tool-item">
+        <div class="tool-icon">⚡</div>
+        <div>
+          <div class="tool-name">run_shell_command</div>
+          <div class="tool-desc">Execute any shell command on Mac Mini</div>
+        </div>
+        <div class="tool-status">READY</div>
+      </div>
+      <div class="tool-item">
+        <div class="tool-icon">📖</div>
+        <div>
+          <div class="tool-name">read_file</div>
+          <div class="tool-desc">Read any file from the filesystem</div>
+        </div>
+        <div class="tool-status">READY</div>
+      </div>
+      <div class="tool-item">
+        <div class="tool-icon">✏️</div>
+        <div>
+          <div class="tool-name">write_file</div>
+          <div class="tool-desc">Write or update files on Mac Mini</div>
+        </div>
+        <div class="tool-status">READY</div>
+      </div>
+      <div class="tool-item">
+        <div class="tool-icon">🤖</div>
+        <div>
+          <div class="tool-name">run_anthropic_completion</div>
+          <div class="tool-desc">Direct Anthropic API — Sonnet or Opus</div>
+        </div>
+        <div class="tool-status" id="anthropic-status">CHECKING</div>
+      </div>
+    </div>
+
+    <div class="system-panel">
+      <div class="section-header">
+        <div class="section-title">System Status</div>
+      </div>
+      <div class="sys-row"><span class="sys-key">Gateway Version</span><span class="sys-val ok" id="sys-version">—</span></div>
+      <div class="sys-row"><span class="sys-key">Anthropic API</span><span class="sys-val" id="sys-anthropic">—</span></div>
+      <div class="sys-row"><span class="sys-key">ngrok Domain</span><span class="sys-val" id="sys-ngrok">—</span></div>
+      <div class="sys-row"><span class="sys-key">Project Path</span><span class="sys-val" id="sys-project">—</span></div>
+      <div class="sys-row"><span class="sys-key">MCP Endpoint</span><span class="sys-val ok">/mcp</span></div>
+      <div class="sys-row"><span class="sys-key">Standard Model</span><span class="sys-val" id="sys-model-std">—</span></div>
+      <div class="sys-row"><span class="sys-key">Power Model</span><span class="sys-val" id="sys-model-power">—</span></div>
+    </div>
+  </div>
+
+  <div class="table-panel">
+    <div class="table-header">
+      <div class="section-title">Recent Task History</div>
+      <div class="refresh-indicator">
+        <div class="refresh-dot"></div>
+        <span>Auto-refreshes every 10s</span>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Tool</th>
+          <th>Prompt / Command</th>
+          <th>Duration</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="task-tbody">
+        <tr><td colspan="5"><div class="empty-state"><div class="icon">⚡</div><p>No tasks yet. Manus will send tasks here through the MCP endpoint.</p></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
 
 <script>
-const BASE = window.location.origin;
-let allTasks = [];
-
-async function refresh() {
-  try {
-    const health = await fetch(`${BASE}/health`).then(r => r.json());
-    document.getElementById('statusDot').style.background = health.status === 'ok' ? '#22c55e' : '#ef4444';
-    document.getElementById('statusText').textContent = health.status === 'ok' ? 'Online' : 'Error';
-    document.getElementById('versionBadge').textContent = `v${health.version}`;
-    document.getElementById('mcpUrl').textContent = `https://${health.ngrok_domain || 'dinoonemcp.ngrok.app'}/mcp`;
-    document.getElementById('claudeStatus').textContent = health.claude_bin_exists ? 'Ready' : 'Not Found';
-    document.getElementById('claudeStatus').style.color = health.claude_bin_exists ? '#22c55e' : '#ef4444';
-
-    const stats = health.stats || {};
-    document.getElementById('totalTasks').textContent = stats.total_tasks || 0;
-    document.getElementById('successCount').textContent = stats.successful || 0;
-    const rate = stats.total_tasks > 0 ? ((stats.successful / stats.total_tasks) * 100).toFixed(1) : '0';
-    document.getElementById('successRate').textContent = `${rate}%`;
-    document.getElementById('creditsSaved').textContent = (stats.total_credits_saved || 0).toLocaleString();
-    document.getElementById('savingsTasks').textContent = `${stats.successful || 0} tasks routed`;
-  } catch (e) {
-    document.getElementById('statusDot').style.background = '#ef4444';
-    document.getElementById('statusText').textContent = 'Offline';
+  function fmtDuration(ms) {
+    if (!ms) return '—';
+    if (ms < 1000) return ms + 'ms';
+    return (ms / 1000).toFixed(1) + 's';
   }
-}
+  function fmtTime(ts) {
+    if (!ts) return '—';
+    try { return new Date(ts + 'Z').toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+    catch(e) { return ts; }
+  }
+  function statusBadge(s) {
+    const map = {success:'badge-success',error:'badge-error',timeout:'badge-timeout',pending:'badge-pending'};
+    return `<span class="badge ${map[s]||'badge-pending'}">${s}</span>`;
+  }
 
-async function fetchTasks() {
-  try {
-    const tasks = await fetch(`${BASE}/api/tasks?limit=50`).then(r => r.json());
-    allTasks = tasks;
-    const tbody = document.getElementById('historyBody');
-
-    // Count tiers
-    let stdCount = 0, pwrCount = 0;
-    tasks.forEach(t => {
-      if (t.tier === 'standard') stdCount++;
-      else if (t.tier === 'power') pwrCount++;
-    });
-    document.getElementById('tierStandard').textContent = stdCount;
-    document.getElementById('tierPower').textContent = pwrCount;
-
-    if (tasks.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">No tasks yet. Send a task via Manus to get started.</td></tr>';
-      return;
+  async function loadHealth() {
+    try {
+      const d = await fetch('/health').then(r=>r.json());
+      document.getElementById('status-dot').className = 'status-dot';
+      document.getElementById('status-text').textContent = 'Online';
+      document.getElementById('version-tag').textContent = 'v' + d.version;
+      document.getElementById('mcp-url').textContent = 'https://' + d.ngrok_domain + '/mcp';
+      document.getElementById('sys-version').textContent = d.version;
+      document.getElementById('sys-ngrok').textContent = d.ngrok_domain;
+      document.getElementById('sys-project').textContent = (d.project_path||'—').replace(/^\/Users\/[^/]+/, '~');
+      const ok = d.anthropic_configured;
+      const el = document.getElementById('sys-anthropic');
+      el.textContent = ok ? 'Configured ✓' : 'NOT CONFIGURED';
+      el.className = 'sys-val ' + (ok ? 'ok' : 'err');
+      const as = document.getElementById('anthropic-status');
+      as.textContent = ok ? 'READY' : 'NO KEY';
+      as.style.color = ok ? 'var(--success)' : 'var(--error)';
+      document.getElementById('stat-total').textContent = d.stats.total_tasks;
+      document.getElementById('stat-success').textContent = d.stats.successful;
+      const pct = d.stats.total_tasks > 0 ? Math.round(d.stats.successful/d.stats.total_tasks*100) : 0;
+      document.getElementById('stat-success-pct').textContent = pct + '% success rate';
+    } catch(e) {
+      document.getElementById('status-dot').className = 'status-dot offline';
+      document.getElementById('status-text').textContent = 'Offline';
     }
-
-    tbody.innerHTML = tasks.map((t, i) => `
-      <tr>
-        <td>${t.timestamp || '--'}</td>
-        <td><span class="badge badge-${t.tier || 'standard'}">${(t.tier || 'standard').toUpperCase()}</span></td>
-        <td>${t.model || '--'}</td>
-        <td><span class="badge badge-${t.status}">${t.status}</span></td>
-        <td>${t.duration_ms ? (t.duration_ms / 1000).toFixed(1) + 's' : '--'}</td>
-        <td>${t.credits_saved || 0}</td>
-        <td><button class="btn btn-secondary" style="padding:4px 10px;font-size:11px" onclick="showTask(${i})">View</button></td>
-      </tr>
-    `).join('');
-  } catch (e) {
-    console.error('Failed to fetch tasks:', e);
   }
-}
 
-function showTask(i) {
-  const t = allTasks[i];
-  if (!t) return;
-  document.getElementById('modalTitle').textContent = `Task ${t.task_id || '#' + (i+1)} — ${(t.tier || 'standard').toUpperCase()} (${t.model || '?'})`;
-  let content = '';
-  if (t.prompt_preview) content += `PROMPT:\n${t.prompt_preview}\n\n`;
-  if (t.output) content += `OUTPUT:\n${t.output}`;
-  else if (t.error_message) content += `ERROR:\n${t.error_message}`;
-  else content += 'No output available.';
-  document.getElementById('modalContent').textContent = content;
-  document.getElementById('modalOverlay').classList.add('active');
-}
-
-function closeModal(e) {
-  if (e.target === document.getElementById('modalOverlay')) {
-    document.getElementById('modalOverlay').classList.remove('active');
+  async function loadConfig() {
+    try {
+      const d = await fetch('/api/config').then(r=>r.json());
+      document.getElementById('sys-model-std').textContent = d.models?.standard || '—';
+      document.getElementById('sys-model-power').textContent = d.models?.power || '—';
+    } catch(e) {}
   }
-}
 
-function copyOutput() {
-  const text = document.getElementById('modalContent').textContent;
-  navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard'));
-}
+  async function loadTasks() {
+    try {
+      const tasks = await fetch('/api/tasks?limit=25').then(r=>r.json());
+      const tbody = document.getElementById('task-tbody');
+      if (!tasks.length) {
+        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">⚡</div><p>No tasks yet. Manus will send tasks here through the MCP endpoint.</p></div></td></tr>';
+        return;
+      }
+      const withDur = tasks.filter(t=>t.duration_ms);
+      if (withDur.length) {
+        const avg = withDur.reduce((s,t)=>s+t.duration_ms,0)/withDur.length;
+        document.getElementById('stat-avg-dur').textContent = (avg/1000).toFixed(1);
+      }
+      const last = tasks[0];
+      document.getElementById('stat-last-tool').textContent = last.tool || '—';
+      document.getElementById('stat-last-time').textContent = fmtTime(last.timestamp);
+      tbody.innerHTML = tasks.map(t=>`
+        <tr>
+          <td style="color:var(--text3);font-size:11px;white-space:nowrap;">${fmtTime(t.timestamp)}</td>
+          <td><span class="tool-tag">${t.tool||'—'}</span></td>
+          <td><div class="prompt-preview" title="${(t.prompt_preview||'').replace(/"/g,'&quot;')}">${t.prompt_preview||'—'}</div></td>
+          <td><span class="duration">${fmtDuration(t.duration_ms)}</span></td>
+          <td>${statusBadge(t.status)}</td>
+        </tr>`).join('');
+    } catch(e) {}
+  }
 
-function copyEndpoint() {
-  const url = document.getElementById('mcpUrl').textContent;
-  navigator.clipboard.writeText(url).then(() => showToast('MCP URL copied'));
-}
+  function copyEndpoint() {
+    const url = document.getElementById('mcp-url').textContent;
+    navigator.clipboard.writeText(url).then(()=>{
+      const btn = document.getElementById('copy-btn');
+      btn.textContent = 'Copied!'; btn.classList.add('copied');
+      setTimeout(()=>{ btn.textContent='Copy Endpoint'; btn.classList.remove('copied'); }, 2000);
+    });
+  }
 
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2000);
-}
+  async function refresh() {
+    await Promise.all([loadHealth(), loadConfig(), loadTasks()]);
+    document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  }
 
-refresh();
-fetchTasks();
-setInterval(refresh, 10000);
-setInterval(fetchTasks, 15000);
+  refresh();
+  setInterval(refresh, 10000);
 </script>
 </body>
 </html>
