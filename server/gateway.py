@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.1.0"
+VERSION = "8.3.0"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -342,58 +342,11 @@ async def run_anthropic_completion(
         return msg
 
 
-# ─── Tool 5: execute_code_task ───────────────────────────────────────────────
-@mcp.tool()
-async def execute_code_task(
-    task: str,
-    tier: str = "standard",
-    working_dir: str = "",
-    max_turns: int = 10,
-) -> str:
-    """
-    Execute a coding task using Claude Code CLI on the Mac Mini.
-    Use this for tasks that need to read/write files in the project codebase.
-    For simple questions, use run_anthropic_completion instead.
-
-    Args:
-        task: The coding task description
-        tier: "standard" (Sonnet, fast) or "power" (Opus, best quality)
-        working_dir: Project directory path (defaults to PROJECT_PATH)
-        max_turns: Max Claude Code iterations, default 10
-
-    Returns:
-        Claude Code's output as a string.
-    """
-    if not Path(CLAUDE_BIN).exists():
-        return f"Claude CLI not found at {CLAUDE_BIN}. Install: npm install -g @anthropic-ai/claude-code"
-
-    if not ANTHROPIC_API_KEY:
-        return "Error: ANTHROPIC_API_KEY is not configured. Set it in ~/.config/ie-mcp/.env"
-
-    task_id = uuid.uuid4().hex[:8]
+# ─── Background runner for execute_code_task ─────────────────────────────────
+async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: dict,
+                                       tier: str, task: str, timeout: int):
+    """Runs Claude Code in the background and stores result in DB when done."""
     start = time.time()
-    cwd = working_dir or PROJECT_PATH
-    timeout = 300 if tier == "power" else 180
-
-    logger.info(f"[{task_id}] execute_code_task: tier={tier}, cwd={cwd}")
-    logger.info(f"[{task_id}] Task preview: {task[:150]}")
-
-    # Pass our API key directly — no OAuth, no OpenRouter
-    env = os.environ.copy()
-    env["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
-    # Unset any OpenRouter or proxy settings
-    env.pop("ANTHROPIC_BASE_URL", None)
-    env.pop("OPENROUTER_API_KEY", None)
-
-    cmd = [
-        CLAUDE_BIN,
-        "-p", task,
-        "--output-format", "text",
-        "--dangerously-skip-permissions",
-        "--max-turns", str(max_turns),
-        "--mcp-config", str(EMPTY_MCP_CFG),
-    ]
-
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -408,9 +361,10 @@ async def execute_code_task(
             proc.kill()
             await proc.communicate()
             duration_ms = int((time.time() - start) * 1000)
-            msg = f"Task timed out after {timeout}s. Try a simpler task or use tier='power' for complex work."
+            msg = f"Task timed out after {timeout}s."
             log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "timeout", msg)
-            return msg
+            logger.info(f"[{task_id}] Timed out after {timeout}s")
+            return
 
         duration_ms = int((time.time() - start) * 1000)
         out = stdout.decode("utf-8", errors="replace").strip()
@@ -419,13 +373,81 @@ async def execute_code_task(
         status = "success" if proc.returncode == 0 else "error"
         log_task(task_id, "execute_code_task", tier, tier, task, output, duration_ms, status)
         logger.info(f"[{task_id}] Completed in {duration_ms}ms, exit={proc.returncode}")
-        return output
 
     except Exception as e:
         duration_ms = int((time.time() - start) * 1000)
         msg = f"Error running Claude Code: {e}"
         log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "error", str(e))
-        return msg
+        logger.error(f"[{task_id}] Exception: {e}")
+
+
+# ─── Tool 5: execute_code_task ───────────────────────────────────────────────
+@mcp.tool()
+async def execute_code_task(
+    task: str,
+    tier: str = "standard",
+    working_dir: str = "",
+    max_turns: int = 10,
+) -> str:
+    """
+    Execute a coding task using Claude Code CLI on the Mac Mini.
+    FIRE-AND-FORGET: returns a task_id immediately, runs Claude Code in background.
+    Poll GET /api/tasks to check status and retrieve output when complete.
+
+    Use this for tasks that need to read/write files in the project codebase.
+    For simple questions or fast responses, use run_anthropic_completion instead.
+
+    Args:
+        task: The coding task description
+        tier: "standard" (Sonnet) or "power" (Opus)
+        working_dir: Project directory path (defaults to PROJECT_PATH)
+        max_turns: Max Claude Code iterations, default 10
+
+    Returns:
+        JSON string with task_id and poll URL. Check /api/tasks for results.
+    """
+    if not Path(CLAUDE_BIN).exists():
+        return f"Claude CLI not found at {CLAUDE_BIN}. Install: npm install -g @anthropic-ai/claude-code"
+
+    if not ANTHROPIC_API_KEY:
+        return "Error: ANTHROPIC_API_KEY is not configured. Set it in ~/.config/ie-mcp/.env"
+
+    task_id = uuid.uuid4().hex[:8]
+    cwd = working_dir or PROJECT_PATH
+    timeout = 300 if tier == "power" else 180
+
+    logger.info(f"[{task_id}] execute_code_task queued: tier={tier}, cwd={cwd}")
+    logger.info(f"[{task_id}] Task preview: {task[:150]}")
+
+    # Log as pending immediately so it shows up in the dashboard
+    log_task(task_id, "execute_code_task", tier, tier, task, None, 0, "pending")
+
+    # Build env — pass API key directly, strip OpenRouter/proxy settings
+    env = os.environ.copy()
+    env["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
+    env.pop("ANTHROPIC_BASE_URL", None)
+    env.pop("OPENROUTER_API_KEY", None)
+
+    cmd = [
+        CLAUDE_BIN,
+        "-p", task,
+        "--output-format", "text",
+        "--dangerously-skip-permissions",
+        "--max-turns", str(max_turns),
+        "--mcp-config", str(EMPTY_MCP_CFG),
+    ]
+
+    # Fire and forget — run in background, return task_id immediately
+    asyncio.create_task(_run_claude_code_background(task_id, cmd, cwd, env, tier, task, timeout))
+
+    return json.dumps({
+        "task_id": task_id,
+        "status": "queued",
+        "message": f"Claude Code task queued. Poll /api/tasks to check status.",
+        "poll_url": f"https://{NGROK_DOMAIN}/api/tasks?limit=10",
+        "tier": tier,
+        "timeout_seconds": timeout,
+    })
 
 
 # ─── HTTP API Endpoints ───────────────────────────────────────────────────────
