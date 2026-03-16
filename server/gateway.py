@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.3.0"
+VERSION = "8.4.0"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -95,6 +95,18 @@ def init_db():
         )
     """)
     conn.commit()
+    # Migrate: add columns that may be missing from older schema versions
+    for col, definition in [
+        ("tool",  "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("tier",  "TEXT"),
+        ("model", "TEXT"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} {definition}")
+            conn.commit()
+            logger.info(f"Migration: added column '{col}' to tasks table")
+        except Exception:
+            pass  # Column already exists
     conn.close()
     logger.info(f"Database ready: {DB_PATH}")
     # Write empty MCP config so Claude Code skips slow MCP server initialization
