@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IE.AI Command Center</title>
+  <title>IE.AI Command Center v8.20</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     /* ── Reset & Base ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -17,11 +18,13 @@
       --purple:       #4632DA;
       --muted:        #818287;
       --error:        #FF3C00;
+      --warn:         #F59E0B;
       --card-bg:      #111111;
+      --card-bg2:     #131313;
       --border:       rgba(154, 221, 38, 0.2);
-      --border-faint: rgba(154, 221, 38, 0.15);
+      --border-faint: rgba(154, 221, 38, 0.08);
       --border-mid:   rgba(154, 221, 38, 0.3);
-      --border-dim:   rgba(154, 221, 38, 0.1);
+      --border-dim:   rgba(154, 221, 38, 0.06);
       --text:         #F5F5F5;
       --font-display: 'Rajdhani', sans-serif;
       --font-body:    'Inter', sans-serif;
@@ -44,30 +47,17 @@
       position: fixed;
       inset: 0;
       background-image:
-        repeating-linear-gradient(
-          0deg,
-          transparent,
-          transparent 39px,
-          rgba(154, 221, 38, 0.03) 39px,
-          rgba(154, 221, 38, 0.03) 40px
-        ),
-        repeating-linear-gradient(
-          90deg,
-          transparent,
-          transparent 39px,
-          rgba(154, 221, 38, 0.03) 39px,
-          rgba(154, 221, 38, 0.03) 40px
-        );
+        repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(154,221,38,0.025) 39px, rgba(154,221,38,0.025) 40px),
+        repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(154,221,38,0.025) 39px, rgba(154,221,38,0.025) 40px);
       pointer-events: none;
       z-index: 0;
     }
 
-    /* Scrollbar */
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: var(--lime); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb { background: rgba(154,221,38,0.3); border-radius: 2px; }
 
-    /* ── Layout Shell ── */
+    /* ── App Shell ── */
     #app {
       position: relative;
       z-index: 1;
@@ -76,39 +66,33 @@
       height: 100vh;
     }
 
-    /* ── ROW 1: Header Bar ── */
+    /* ── HEADER ── */
     #header {
-      flex: 0 0 60px;
+      flex: 0 0 52px;
       display: flex;
       align-items: center;
       padding: 0 24px;
       background: var(--card-bg);
       border-bottom: 1px solid var(--border-mid);
-      gap: 24px;
-    }
-
-    #header-left {
-      display: flex;
-      align-items: baseline;
-      gap: 10px;
-      flex: 1;
+      gap: 20px;
     }
 
     #logo {
       font-family: var(--font-display);
       font-weight: 700;
-      font-size: 22px;
+      font-size: 20px;
       color: var(--lime);
       letter-spacing: 0.04em;
-      line-height: 1;
     }
+
+    #logo-sep { color: rgba(154,221,38,0.3); font-size: 16px; }
 
     #logo-sub {
       font-family: var(--font-display);
       font-weight: 600;
-      font-size: 13px;
+      font-size: 12px;
       color: var(--muted);
-      letter-spacing: 0.08em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
     }
 
@@ -117,40 +101,58 @@
       text-align: center;
       font-family: var(--font-display);
       font-weight: 600;
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.2em;
+      font-size: 10px;
+      color: rgba(154,221,38,0.35);
+      letter-spacing: 0.25em;
       text-transform: uppercase;
     }
 
     #header-right {
-      flex: 1;
       display: flex;
       align-items: center;
-      justify-content: flex-end;
       gap: 16px;
     }
 
-    #version-badge {
+    .hdr-pill {
       font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--lime);
-      background: rgba(154, 221, 38, 0.08);
-      border: 1px solid var(--border);
-      border-radius: 4px;
+      font-size: 10px;
       padding: 3px 8px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      background: rgba(154,221,38,0.05);
+    }
+
+    #live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--lime);
+    }
+
+    #live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--lime);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
     }
 
     #live-clock {
       font-family: var(--font-mono);
-      font-size: 13px;
+      font-size: 12px;
       color: var(--muted);
-      letter-spacing: 0.05em;
     }
 
-    /* ── ROW 2: Stat Cards ── */
+    /* ── STAT CARDS ROW ── */
     #stat-row {
-      flex: 0 0 180px;
+      flex: 0 0 130px;
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 1px;
@@ -160,65 +162,99 @@
 
     .stat-card {
       display: flex;
-      flex-direction: column;
-      justify-content: center;
-      padding: 0 28px;
+      align-items: center;
+      padding: 0 24px;
       background: var(--card-bg);
-      border-left: 3px solid var(--lime);
+      gap: 20px;
+      cursor: pointer;
+      transition: background 0.15s;
       position: relative;
       overflow: hidden;
     }
 
-    .stat-card:first-child { border-left-width: 3px; }
-
-    .stat-card--glow {
-      box-shadow: 0 0 20px rgba(154, 221, 38, 0.15);
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: var(--lime);
     }
 
-    .stat-card__label {
+    .stat-card--purple::before { background: var(--purple); }
+    .stat-card--glow { box-shadow: inset 0 0 30px rgba(154,221,38,0.04); }
+    .stat-card:hover { background: rgba(154,221,38,0.03); }
+
+    .stat-gauge {
+      flex: 0 0 70px;
+      position: relative;
+    }
+
+    .stat-gauge svg { display: block; }
+
+    .stat-gauge__text {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--lime);
+    }
+
+    .stat-gauge--purple .stat-gauge__text { color: var(--purple); }
+
+    .stat-info { flex: 1; min-width: 0; }
+
+    .stat-label {
       font-family: var(--font-body);
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 500;
       color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.12em;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
 
-    .stat-card__value {
+    .stat-value {
       font-family: var(--font-display);
       font-weight: 700;
-      font-size: 48px;
+      font-size: 36px;
       color: var(--lime);
       line-height: 1;
     }
 
-    .stat-card__sub {
+    .stat-value--purple { color: var(--purple); }
+    .stat-value--glow { text-shadow: 0 0 20px rgba(154,221,38,0.35); }
+
+    .stat-sub {
       font-family: var(--font-body);
-      font-size: 12px;
+      font-size: 11px;
       color: var(--muted);
-      margin-top: 8px;
+      margin-top: 4px;
     }
 
-    /* ── ROW 3: Main Content ── */
+    /* ── MAIN CONTENT ── */
     #main-content {
       flex: 1 1 0;
-      display: flex;
-      min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       gap: 1px;
       background: var(--border-faint);
+      min-height: 0;
     }
 
-    #left-panel {
-      flex: 0 0 60%;
+    /* ── FLOW PANEL (left) ── */
+    #flow-panel {
       display: flex;
       flex-direction: column;
       background: var(--card-bg);
       min-height: 0;
     }
 
-    #right-panel {
-      flex: 0 0 40%;
+    /* ── TASK FEED PANEL (right) ── */
+    #feed-panel {
       display: flex;
       flex-direction: column;
       background: var(--card-bg);
@@ -227,174 +263,827 @@
 
     .panel-header {
       flex: 0 0 auto;
-      padding: 14px 24px 12px;
+      padding: 12px 20px 10px;
       border-bottom: 1px solid var(--border-faint);
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
+    }
+
+    .panel-header__dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--lime);
+      opacity: 0.6;
     }
 
     .panel-header__title {
       font-family: var(--font-display);
       font-weight: 700;
-      font-size: 13px;
+      font-size: 11px;
       color: var(--lime);
       text-transform: uppercase;
+      letter-spacing: 0.15em;
+      flex: 1;
+    }
+
+    .panel-header__badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    /* ── Orchestration Flow SVG Area ── */
+    #flow-svg-wrap {
+      flex: 0 0 auto;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border-faint);
+    }
+
+    #flow-svg {
+      width: 100%;
+      height: 90px;
+      overflow: visible;
+    }
+
+    /* ── Task Output Area ── */
+    #task-output-wrap {
+      flex: 1 1 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    #task-output-header {
+      flex: 0 0 auto;
+      padding: 10px 20px 8px;
+      border-bottom: 1px solid var(--border-faint);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #task-output-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
       letter-spacing: 0.12em;
+      flex: 1;
     }
 
-    .panel-header__dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--lime);
-      opacity: 0.5;
+    #task-output-id {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: rgba(154,221,38,0.4);
     }
 
-    .panel-body {
+    #task-output-body {
       flex: 1 1 0;
       overflow-y: auto;
-      padding: 20px 24px;
+      padding: 12px 20px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.7;
     }
 
-    .placeholder-area {
-      height: 100%;
-      min-height: 120px;
-      border: 1px dashed rgba(154, 221, 38, 0.12);
+    .out-line { display: block; }
+    .out-line--success { color: var(--lime); }
+    .out-line--error { color: var(--error); }
+    .out-line--info { color: var(--muted); }
+    .out-line--warn { color: var(--warn); }
+
+    /* ── Task Feed ── */
+    #feed-body {
+      flex: 1 1 0;
+      overflow-y: auto;
+      padding: 0;
+    }
+
+    .task-row {
+      display: grid;
+      grid-template-columns: 70px 1fr 60px 56px;
+      align-items: center;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border-faint);
+      cursor: pointer;
+      transition: background 0.12s;
+      gap: 10px;
+    }
+
+    .task-row:hover { background: rgba(154,221,38,0.03); }
+    .task-row.active { background: rgba(154,221,38,0.05); border-left: 2px solid var(--lime); }
+
+    .task-time {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .task-preview {
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .task-duration {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    .task-badge {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 500;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-align: center;
+      letter-spacing: 0.05em;
+    }
+
+    .task-badge--success { background: rgba(154,221,38,0.12); color: var(--lime); border: 1px solid rgba(154,221,38,0.25); }
+    .task-badge--error   { background: rgba(255,60,0,0.12);   color: var(--error); border: 1px solid rgba(255,60,0,0.25); }
+    .task-badge--pending { background: rgba(70,50,218,0.12);  color: #8B7CF6; border: 1px solid rgba(70,50,218,0.3); }
+    .task-badge--running { background: rgba(245,158,11,0.12); color: var(--warn); border: 1px solid rgba(245,158,11,0.3); }
+
+    /* ── FOOTER / ENGINE ROOM ── */
+    #footer {
+      flex: 0 0 auto;
+      background: var(--card-bg);
+      border-top: 1px solid var(--border-faint);
+    }
+
+    #footer-bar {
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      height: 38px;
+      gap: 20px;
+      cursor: pointer;
+    }
+
+    #footer-toggle {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      flex: 1;
+    }
+
+    #footer-stats {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .footer-stat {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .footer-stat__dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--lime);
+    }
+
+    .footer-stat__dot--warn { background: var(--warn); }
+    .footer-stat__dot--error { background: var(--error); }
+
+    #engine-room {
+      display: none;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 1px;
+      background: var(--border-faint);
+      border-top: 1px solid var(--border-faint);
+    }
+
+    #engine-room.open { display: grid; }
+
+    .engine-cell {
+      background: var(--card-bg2);
+      padding: 12px 16px;
+    }
+
+    .engine-cell__label {
+      font-family: var(--font-body);
+      font-size: 9px;
+      font-weight: 500;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 6px;
+    }
+
+    .engine-cell__value {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--lime);
+    }
+
+    .engine-cell__value--muted { color: var(--muted); }
+
+    /* ── Particle animation on flow SVG ── */
+    @keyframes flow-particle {
+      0%   { offset-distance: 0%; opacity: 0; }
+      5%   { opacity: 1; }
+      95%  { opacity: 1; }
+      100% { offset-distance: 100%; opacity: 0; }
+    }
+
+    .flow-particle {
+      offset-path: path('M 30 45 L 470 45');
+      animation: flow-particle 2s linear infinite;
+      fill: var(--lime);
+    }
+
+    .flow-particle--return {
+      offset-path: path('M 470 55 L 30 55');
+      animation: flow-particle 2s linear infinite 1s;
+      fill: var(--purple);
+    }
+
+    /* ── Tooltip ── */
+    #tooltip {
+      position: fixed;
+      background: #1A1A1A;
+      border: 1px solid var(--border-mid);
       border-radius: 6px;
+      padding: 10px 14px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text);
+      pointer-events: none;
+      z-index: 9999;
+      display: none;
+      max-width: 280px;
+      line-height: 1.6;
+    }
+
+    /* ── Empty state ── */
+    .empty-state {
       display: flex;
       align-items: center;
       justify-content: center;
-    }
-
-    .placeholder-area__text {
+      height: 100%;
       font-family: var(--font-mono);
       font-size: 11px;
-      color: rgba(154, 221, 38, 0.2);
+      color: rgba(154,221,38,0.15);
       letter-spacing: 0.1em;
-    }
-
-    /* ── ROW 4: Footer Bar ── */
-    #footer {
-      flex: 0 0 40px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 24px;
-      background: var(--card-bg);
-      border-top: 1px solid var(--border-dim);
-    }
-
-    #footer-left {
-      font-family: var(--font-display);
-      font-weight: 600;
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-    }
-
-    #footer-right {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--muted);
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-
-    #footer-version {
-      color: rgba(154, 221, 38, 0.5);
     }
   </style>
 </head>
 <body>
   <div id="app">
 
-    <!-- ROW 1: Header Bar -->
+    <!-- HEADER -->
     <header id="header">
-      <div id="header-left">
-        <span id="logo">IE.AI</span>
-        <span id="logo-sub">Command Center</span>
-      </div>
-      <div id="header-center">Manus Orchestration Platform</div>
+      <span id="logo">IE.AI</span>
+      <span id="logo-sep">|</span>
+      <span id="logo-sub">Command Center</span>
+      <div id="header-center">MANUS ORCHESTRATION PLATFORM</div>
       <div id="header-right">
-        <span id="version-badge">v8.20.0</span>
+        <div id="live-indicator">
+          <div id="live-dot"></div>
+          <span>LIVE</span>
+        </div>
+        <span class="hdr-pill" id="version-pill">v8.20.0</span>
         <span id="live-clock">--:--:--</span>
       </div>
     </header>
 
-    <!-- ROW 2: Stat Cards -->
+    <!-- STAT CARDS -->
     <section id="stat-row">
-      <div class="stat-card">
-        <div class="stat-card__label">Tasks Today</div>
-        <div class="stat-card__value">—</div>
-        <div class="stat-card__sub">No data yet</div>
+      <!-- Tasks Today -->
+      <div class="stat-card" id="card-tasks" title="Click for task list">
+        <div class="stat-gauge" id="gauge-tasks">
+          <svg viewBox="0 0 70 70" width="70" height="70">
+            <circle cx="35" cy="35" r="28" fill="none" stroke="rgba(154,221,38,0.08)" stroke-width="5"/>
+            <circle id="gauge-tasks-arc" cx="35" cy="35" r="28" fill="none" stroke="#9ADD26" stroke-width="5"
+              stroke-linecap="round" stroke-dasharray="175.9" stroke-dashoffset="175.9"
+              transform="rotate(-90 35 35)" style="transition: stroke-dashoffset 1.2s ease;"/>
+          </svg>
+          <div class="stat-gauge__text" id="gauge-tasks-pct">—</div>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Tasks Today</div>
+          <div class="stat-value stat-value--glow" id="val-tasks">—</div>
+          <div class="stat-sub" id="sub-tasks">Loading…</div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-card__label">Success Rate</div>
-        <div class="stat-card__value">—</div>
-        <div class="stat-card__sub">No data yet</div>
+
+      <!-- Success Rate -->
+      <div class="stat-card" id="card-success" title="Click for failed tasks">
+        <div class="stat-gauge" id="gauge-success">
+          <svg viewBox="0 0 70 70" width="70" height="70">
+            <circle cx="35" cy="35" r="28" fill="none" stroke="rgba(154,221,38,0.08)" stroke-width="5"/>
+            <circle id="gauge-success-arc" cx="35" cy="35" r="28" fill="none" stroke="#9ADD26" stroke-width="5"
+              stroke-linecap="round" stroke-dasharray="175.9" stroke-dashoffset="175.9"
+              transform="rotate(-90 35 35)" style="transition: stroke-dashoffset 1.2s ease;"/>
+          </svg>
+          <div class="stat-gauge__text" id="gauge-success-pct">—</div>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Success Rate</div>
+          <div class="stat-value stat-value--glow" id="val-success">—</div>
+          <div class="stat-sub" id="sub-success">Loading…</div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-card__label">Avg Duration</div>
-        <div class="stat-card__value">—</div>
-        <div class="stat-card__sub">No data yet</div>
+
+      <!-- Avg Duration -->
+      <div class="stat-card stat-card--purple" id="card-duration">
+        <div class="stat-gauge stat-gauge--purple">
+          <svg viewBox="0 0 70 70" width="70" height="70">
+            <circle cx="35" cy="35" r="28" fill="none" stroke="rgba(70,50,218,0.15)" stroke-width="5"/>
+            <circle id="gauge-dur-arc" cx="35" cy="35" r="28" fill="none" stroke="#4632DA" stroke-width="5"
+              stroke-linecap="round" stroke-dasharray="175.9" stroke-dashoffset="175.9"
+              transform="rotate(-90 35 35)" style="transition: stroke-dashoffset 1.2s ease;"/>
+          </svg>
+          <div class="stat-gauge__text">⏱</div>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Avg Duration</div>
+          <div class="stat-value stat-value--purple" id="val-duration">—</div>
+          <div class="stat-sub" id="sub-duration">Loading…</div>
+        </div>
       </div>
-      <div class="stat-card stat-card--glow">
-        <div class="stat-card__label">Credits Saved</div>
-        <div class="stat-card__value">—</div>
-        <div class="stat-card__sub">No data yet</div>
+
+      <!-- Credits Saved -->
+      <div class="stat-card stat-card--glow" id="card-savings" title="Click for ROI breakdown">
+        <div class="stat-gauge">
+          <svg viewBox="0 0 70 70" width="70" height="70">
+            <circle cx="35" cy="35" r="28" fill="none" stroke="rgba(154,221,38,0.08)" stroke-width="5"/>
+            <circle id="gauge-savings-arc" cx="35" cy="35" r="28" fill="none" stroke="#9ADD26" stroke-width="5"
+              stroke-linecap="round" stroke-dasharray="175.9" stroke-dashoffset="0"
+              transform="rotate(-90 35 35)" style="transition: stroke-dashoffset 1.2s ease;"/>
+          </svg>
+          <div class="stat-gauge__text">💰</div>
+        </div>
+        <div class="stat-info">
+          <div class="stat-label">Credits Saved</div>
+          <div class="stat-value stat-value--glow" id="val-savings">—</div>
+          <div class="stat-sub" id="sub-savings">Loading…</div>
+        </div>
       </div>
     </section>
 
-    <!-- ROW 3: Main Content -->
+    <!-- MAIN CONTENT: Flow (left) + Feed (right) -->
     <main id="main-content">
-      <div id="left-panel">
+
+      <!-- LEFT: Orchestration Flow + Live Output -->
+      <div id="flow-panel">
         <div class="panel-header">
-          <span class="panel-header__dot"></span>
-          <span class="panel-header__title">Orchestration Flow</span>
+          <div class="panel-header__dot"></div>
+          <span class="panel-header__title">Manus Orchestration Flow</span>
+          <span class="panel-header__badge" id="flow-status-badge">IDLE</span>
         </div>
-        <div class="panel-body">
-          <div class="placeholder-area">
-            <span class="placeholder-area__text">AWAITING TASK DATA</span>
+
+        <!-- SVG Flow Diagram -->
+        <div id="flow-svg-wrap">
+          <svg id="flow-svg" viewBox="0 0 500 100" preserveAspectRatio="xMidYMid meet">
+            <!-- Connector lines -->
+            <line x1="80" y1="50" x2="140" y2="50" stroke="rgba(154,221,38,0.2)" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <line x1="200" y1="50" x2="260" y2="50" stroke="rgba(154,221,38,0.2)" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <line x1="320" y1="50" x2="380" y2="50" stroke="rgba(154,221,38,0.2)" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+            <!-- Return arc -->
+            <path d="M 440 60 Q 240 90 60 60" fill="none" stroke="rgba(70,50,218,0.2)" stroke-width="1" stroke-dasharray="3 4"/>
+
+            <!-- MIKE node -->
+            <circle cx="40" cy="50" r="28" fill="rgba(154,221,38,0.05)" stroke="rgba(154,221,38,0.25)" stroke-width="1.5"/>
+            <text x="40" y="46" text-anchor="middle" fill="#9ADD26" font-family="Rajdhani,sans-serif" font-size="10" font-weight="700">MIKE</text>
+            <text x="40" y="59" text-anchor="middle" fill="rgba(154,221,38,0.4)" font-family="Inter,sans-serif" font-size="7">Human</text>
+
+            <!-- MANUS node (center, larger, glowing) -->
+            <circle cx="170" cy="50" r="32" fill="rgba(70,50,218,0.1)" stroke="#4632DA" stroke-width="2"/>
+            <circle cx="170" cy="50" r="36" fill="none" stroke="rgba(70,50,218,0.15)" stroke-width="1"/>
+            <text x="170" y="46" text-anchor="middle" fill="#9ADD26" font-family="Rajdhani,sans-serif" font-size="11" font-weight="700">MANUS</text>
+            <text x="170" y="59" text-anchor="middle" fill="rgba(154,221,38,0.5)" font-family="Inter,sans-serif" font-size="7">Orchestrator</text>
+
+            <!-- GATEWAY node -->
+            <rect x="262" y="30" width="56" height="40" rx="4" fill="rgba(154,221,38,0.04)" stroke="rgba(154,221,38,0.2)" stroke-width="1.5"/>
+            <text x="290" y="47" text-anchor="middle" fill="#9ADD26" font-family="Rajdhani,sans-serif" font-size="9" font-weight="700">GATEWAY</text>
+            <text x="290" y="60" text-anchor="middle" fill="rgba(154,221,38,0.4)" font-family="Inter,sans-serif" font-size="7" id="gw-version-label">v8.20.0</text>
+
+            <!-- CLAUDE CODE node -->
+            <circle cx="440" cy="50" r="28" fill="rgba(154,221,38,0.04)" stroke="rgba(154,221,38,0.2)" stroke-width="1.5"/>
+            <text x="440" y="43" text-anchor="middle" fill="#9ADD26" font-family="Rajdhani,sans-serif" font-size="9" font-weight="700">CLAUDE</text>
+            <text x="440" y="54" text-anchor="middle" fill="#9ADD26" font-family="Rajdhani,sans-serif" font-size="9" font-weight="700">CODE</text>
+            <text x="440" y="66" text-anchor="middle" fill="rgba(154,221,38,0.4)" font-family="Inter,sans-serif" font-size="7">Credit Optimizer</text>
+
+            <!-- Animated particles (shown when task is running) -->
+            <circle class="flow-particle" id="particle-fwd" r="3" style="display:none"/>
+            <circle class="flow-particle--return" id="particle-ret" r="3" style="display:none"/>
+
+            <!-- Status dots -->
+            <circle id="dot-mike" cx="58" cy="26" r="4" fill="#9ADD26"/>
+            <circle id="dot-manus" cx="192" cy="22" r="5" fill="#4632DA"/>
+            <circle id="dot-gateway" cx="308" cy="28" r="4" fill="#9ADD26"/>
+            <circle id="dot-claude" cx="458" cy="26" r="4" fill="rgba(154,221,38,0.3)"/>
+          </svg>
+        </div>
+
+        <!-- Live Task Output -->
+        <div id="task-output-wrap">
+          <div id="task-output-header">
+            <span id="task-output-title">Live Output</span>
+            <span id="task-output-id">—</span>
+          </div>
+          <div id="task-output-body">
+            <div class="empty-state">SELECT A TASK TO VIEW OUTPUT</div>
           </div>
         </div>
       </div>
-      <div id="right-panel">
+
+      <!-- RIGHT: Task Feed -->
+      <div id="feed-panel">
         <div class="panel-header">
-          <span class="panel-header__dot"></span>
+          <div class="panel-header__dot"></div>
           <span class="panel-header__title">Task Feed</span>
+          <span class="panel-header__badge" id="feed-count">0 tasks</span>
         </div>
-        <div class="panel-body">
-          <div class="placeholder-area">
-            <span class="placeholder-area__text">AWAITING TASK DATA</span>
-          </div>
+
+        <!-- Feed header row -->
+        <div style="display:grid;grid-template-columns:70px 1fr 60px 56px;gap:10px;padding:8px 20px;border-bottom:1px solid var(--border-faint);">
+          <span style="font-family:var(--font-body);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;">Time</span>
+          <span style="font-family:var(--font-body);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;">Task</span>
+          <span style="font-family:var(--font-body);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;text-align:right;">Duration</span>
+          <span style="font-family:var(--font-body);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;text-align:center;">Status</span>
+        </div>
+
+        <div id="feed-body">
+          <div class="empty-state">AWAITING TASK DATA…</div>
         </div>
       </div>
     </main>
 
-    <!-- ROW 4: Footer Bar -->
+    <!-- FOOTER / ENGINE ROOM -->
     <footer id="footer">
-      <span id="footer-left">IE.AI Manus Platform</span>
-      <div id="footer-right">
-        <span id="footer-version">v8.20.0</span>
-        <span id="footer-uptime">uptime —</span>
+      <div id="footer-bar" onclick="toggleEngineRoom()">
+        <span id="footer-toggle">▶ Engine Room</span>
+        <div id="footer-stats">
+          <div class="footer-stat">
+            <div class="footer-stat__dot" id="dot-gateway-footer"></div>
+            <span id="footer-gateway">Gateway —</span>
+          </div>
+          <div class="footer-stat">
+            <div class="footer-stat__dot"></div>
+            <span id="footer-total">Total: — tasks</span>
+          </div>
+          <div class="footer-stat">
+            <div class="footer-stat__dot"></div>
+            <span id="footer-success-rate">— success</span>
+          </div>
+        </div>
+      </div>
+      <div id="engine-room">
+        <div class="engine-cell">
+          <div class="engine-cell__label">Gateway Version</div>
+          <div class="engine-cell__value" id="er-version">—</div>
+        </div>
+        <div class="engine-cell">
+          <div class="engine-cell__label">ngrok Domain</div>
+          <div class="engine-cell__value" id="er-ngrok">—</div>
+        </div>
+        <div class="engine-cell">
+          <div class="engine-cell__label">Claude Binary</div>
+          <div class="engine-cell__value" id="er-claude">—</div>
+        </div>
+        <div class="engine-cell">
+          <div class="engine-cell__label">Total Tasks (All Time)</div>
+          <div class="engine-cell__value" id="er-total">—</div>
+        </div>
+        <div class="engine-cell">
+          <div class="engine-cell__label">All-Time Success</div>
+          <div class="engine-cell__value" id="er-allsuccess">—</div>
+        </div>
+        <div class="engine-cell">
+          <div class="engine-cell__label">Anthropic API</div>
+          <div class="engine-cell__value" id="er-api">—</div>
+        </div>
       </div>
     </footer>
 
   </div>
 
+  <!-- Tooltip -->
+  <div id="tooltip"></div>
+
   <script>
-    // Live clock only — no data fetching
+    // ── Constants ──────────────────────────────────────────────────────────
+    const AUTH = 'Bearer ie-gateway-mike-2026';
+    const BASE = '';  // same origin
+    const HEADERS = {
+      'ngrok-skip-browser-warning': '1',
+      'Authorization': AUTH
+    };
+    let selectedTaskId = null;
+    let engineOpen = false;
+    let allTasks = [];
+
+    // ── Clock ──────────────────────────────────────────────────────────────
     function tick() {
       const now = new Date();
-      const pad = n => String(n).padStart(2, '0');
+      const p = n => String(n).padStart(2, '0');
       document.getElementById('live-clock').textContent =
-        `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        `${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`;
     }
     tick();
     setInterval(tick, 1000);
+
+    // ── Engine Room toggle ─────────────────────────────────────────────────
+    function toggleEngineRoom() {
+      engineOpen = !engineOpen;
+      document.getElementById('engine-room').classList.toggle('open', engineOpen);
+      document.getElementById('footer-toggle').textContent =
+        (engineOpen ? '▼' : '▶') + ' Engine Room';
+    }
+
+    // ── Gauge helper ───────────────────────────────────────────────────────
+    function setGauge(arcId, pct, color) {
+      const circ = 175.9;
+      const offset = circ * (1 - Math.min(1, Math.max(0, pct / 100)));
+      const el = document.getElementById(arcId);
+      if (!el) return;
+      el.style.strokeDashoffset = offset;
+      if (color) el.style.stroke = color;
+    }
+
+    // ── Count-up animation ─────────────────────────────────────────────────
+    function countUp(elId, target, suffix = '', duration = 1000) {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      const start = Date.now();
+      const from = 0;
+      function step() {
+        const p = Math.min(1, (Date.now() - start) / duration);
+        const ease = 1 - Math.pow(1 - p, 3);
+        const val = Math.round(from + (target - from) * ease);
+        el.textContent = val + suffix;
+        if (p < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    // ── Load summary stats (derived from /api/tasks) ────────────────────────
+    async function loadSummary() {
+      try {
+        const r = await fetch(`${BASE}/api/tasks?limit=200`, { headers: HEADERS });
+        const tasks = await r.json();
+
+        const total = tasks.length;
+        const success = tasks.filter(t => t.status === 'success').length;
+        const failed = tasks.filter(t => t.status === 'error' || t.status === 'failed').length;
+        const rate = total > 0 ? Math.round((success / total) * 100) : 0;
+
+        // Avg duration from tasks with duration_ms > 0
+        const withDur = tasks.filter(t => t.duration_ms > 0);
+        const avgDurMs = withDur.length > 0 ? withDur.reduce((s, t) => s + t.duration_ms, 0) / withDur.length : 0;
+        const avgDur = Math.round(avgDurMs / 1000);
+
+        // Tasks Today
+        countUp('val-tasks', total);
+        document.getElementById('sub-tasks').textContent = `${success} succeeded, ${failed} failed`;
+        setGauge('gauge-tasks-arc', Math.min(100, (total / 400) * 100));
+        document.getElementById('gauge-tasks-pct').textContent = total;
+
+        // Success Rate
+        countUp('val-success', rate, '%');
+        document.getElementById('sub-success').textContent = `${success} of ${total} tasks`;
+        const rateColor = rate >= 80 ? '#9ADD26' : rate >= 50 ? '#F59E0B' : '#FF3C00';
+        setGauge('gauge-success-arc', rate, rateColor);
+        document.getElementById('gauge-success-arc').style.stroke = rateColor;
+        document.getElementById('gauge-success-pct').textContent = rate + '%';
+        document.getElementById('gauge-success-pct').style.color = rateColor;
+
+        // Avg Duration
+        const durLabel = avgDur >= 60 ? `${Math.round(avgDur/60)}m ${avgDur%60}s` : `${avgDur}s`;
+        document.getElementById('val-duration').textContent = durLabel;
+        document.getElementById('sub-duration').textContent = `avg over ${withDur.length} tasks`;
+        const durPct = Math.min(100, (avgDur / 180) * 100);
+        setGauge('gauge-dur-arc', durPct);
+
+        // Credits Saved — each task via Claude Code saves ~95% vs Manus direct
+        // Manus direct estimate: ~20 credits/task. Claude Code: ~1 credit/task.
+        // Net savings per task: ~19 credits
+        const savedEst = Math.round(success * 19);
+        document.getElementById('val-savings').textContent = `~${savedEst}`;
+        document.getElementById('sub-savings').textContent = `est. Manus credits saved`;
+
+        // Footer
+        document.getElementById('footer-total').textContent = `Total: ${total} tasks`;
+        document.getElementById('footer-success-rate').textContent = `${rate}% success`;
+
+      } catch(e) {
+        console.error('Summary load failed:', e);
+      }
+    }
+
+    // ── Load health ────────────────────────────────────────────────────────
+    async function loadHealth() {
+      try {
+        const r = await fetch(`${BASE}/health`, { headers: HEADERS });
+        const d = await r.json();
+
+        const ver = d.version || '—';
+        document.getElementById('version-pill').textContent = `v${ver}`;
+        document.getElementById('gw-version-label').textContent = `v${ver}`;
+        document.getElementById('footer-gateway').textContent = `Gateway v${ver}`;
+
+        // Engine room
+        document.getElementById('er-version').textContent = `v${ver}`;
+        document.getElementById('er-ngrok').textContent = d.ngrok_domain || '—';
+        document.getElementById('er-claude').textContent = d.claude_exists ? '✓ Found' : '✗ Missing';
+        document.getElementById('er-claude').style.color = d.claude_exists ? '#9ADD26' : '#FF3C00';
+        document.getElementById('er-total').textContent = d.stats?.total_tasks || '—';
+        document.getElementById('er-allsuccess').textContent = d.stats?.successful || '—';
+        document.getElementById('er-api').textContent = d.anthropic_configured ? '✓ Configured' : '✗ Missing';
+        document.getElementById('er-api').style.color = d.anthropic_configured ? '#9ADD26' : '#FF3C00';
+
+        // Status dot
+        document.getElementById('dot-gateway-footer').style.background = '#9ADD26';
+
+      } catch(e) {
+        document.getElementById('dot-gateway-footer').style.background = '#FF3C00';
+      }
+    }
+
+    // ── Format time ───────────────────────────────────────────────────────
+    function fmtTime(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts.replace(' ', 'T') + 'Z');
+      const p = n => String(n).padStart(2, '0');
+      return `${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+
+    function fmtDur(ms) {
+      if (!ms || ms === 0) return '—';
+      const s = Math.round(ms / 1000);
+      if (s < 60) return `${s}s`;
+      return `${Math.floor(s/60)}m${s%60}s`;
+    }
+
+    // ── Classify output line ───────────────────────────────────────────────
+    function classifyLine(line) {
+      if (!line) return 'info';
+      const l = line.toLowerCase();
+      if (l.includes('error') || l.includes('failed') || l.includes('traceback')) return 'error';
+      if (l.includes('warn') || l.includes('warning')) return 'warn';
+      if (l.includes('done') || l.includes('success') || l.includes('✓') || l.includes('checkpoint')) return 'success';
+      return 'info';
+    }
+
+    // ── Show task output ───────────────────────────────────────────────────
+    function showTaskOutput(task) {
+      selectedTaskId = task.task_id;
+      const body = document.getElementById('task-output-body');
+      const title = document.getElementById('task-output-title');
+      const idEl = document.getElementById('task-output-id');
+
+      title.textContent = `Task Output — ${task.status?.toUpperCase() || 'UNKNOWN'}`;
+      idEl.textContent = task.task_id || '—';
+
+      // Highlight selected row
+      document.querySelectorAll('.task-row').forEach(r => r.classList.remove('active'));
+      const row = document.querySelector(`[data-task-id="${task.task_id}"]`);
+      if (row) row.classList.add('active');
+
+      if (!task.output) {
+        body.innerHTML = '<div class="empty-state">NO OUTPUT CAPTURED</div>';
+        return;
+      }
+
+      const lines = task.output.split('\n').filter(l => l.trim());
+      body.innerHTML = lines.map(line => {
+        const cls = classifyLine(line);
+        const escaped = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `<span class="out-line out-line--${cls}">${escaped}</span>`;
+      }).join('\n');
+
+      // Scroll to bottom
+      body.scrollTop = body.scrollHeight;
+
+      // Update flow visualization
+      updateFlowForTask(task);
+    }
+
+    // ── Update flow visualization ──────────────────────────────────────────
+    function updateFlowForTask(task) {
+      const badge = document.getElementById('flow-status-badge');
+      const fwd = document.getElementById('particle-fwd');
+      const ret = document.getElementById('particle-ret');
+
+      if (task.status === 'running' || task.status === 'pending') {
+        badge.textContent = 'ACTIVE';
+        badge.style.color = '#F59E0B';
+        fwd.style.display = 'block';
+        ret.style.display = 'none';
+        document.getElementById('dot-claude').style.fill = '#F59E0B';
+      } else if (task.status === 'success') {
+        badge.textContent = 'VERIFIED ✓';
+        badge.style.color = '#9ADD26';
+        fwd.style.display = 'none';
+        ret.style.display = 'block';
+        document.getElementById('dot-claude').style.fill = '#9ADD26';
+        setTimeout(() => { ret.style.display = 'none'; }, 3000);
+      } else {
+        badge.textContent = 'FAILED';
+        badge.style.color = '#FF3C00';
+        fwd.style.display = 'none';
+        ret.style.display = 'none';
+        document.getElementById('dot-claude').style.fill = '#FF3C00';
+      }
+    }
+
+    // ── Load tasks ─────────────────────────────────────────────────────────
+    async function loadTasks() {
+      try {
+        const r = await fetch(`${BASE}/api/tasks?limit=50`, { headers: HEADERS });
+        const tasks = await r.json();
+        allTasks = tasks;
+
+        const body = document.getElementById('feed-body');
+        document.getElementById('feed-count').textContent = `${tasks.length} tasks`;
+
+        if (!tasks.length) {
+          body.innerHTML = '<div class="empty-state">NO TASKS YET</div>';
+          return;
+        }
+
+        body.innerHTML = tasks.map(t => {
+          const badgeClass = {
+            success: 'task-badge--success',
+            error: 'task-badge--error',
+            failed: 'task-badge--error',
+            pending: 'task-badge--pending',
+            running: 'task-badge--running',
+          }[t.status] || 'task-badge--pending';
+
+          const badgeText = {
+            success: 'DONE',
+            error: 'ERR',
+            failed: 'FAIL',
+            pending: 'WAIT',
+            running: 'RUN',
+          }[t.status] || t.status?.toUpperCase() || '—';
+
+          const preview = (t.prompt_preview || '').replace(/\n/g, ' ').substring(0, 60);
+          const isSelected = t.task_id === selectedTaskId;
+
+          return `<div class="task-row${isSelected ? ' active' : ''}" data-task-id="${t.task_id}" onclick="showTaskOutput(${JSON.stringify(t).replace(/"/g, '&quot;')})">
+            <span class="task-time">${fmtTime(t.timestamp)}</span>
+            <span class="task-preview" title="${preview}">${preview || '—'}</span>
+            <span class="task-duration">${fmtDur(t.duration_ms)}</span>
+            <span class="task-badge ${badgeClass}">${badgeText}</span>
+          </div>`;
+        }).join('');
+
+        // Auto-select most recent task if none selected
+        if (!selectedTaskId && tasks.length > 0) {
+          showTaskOutput(tasks[0]);
+        }
+
+        // Check for any running tasks and animate flow
+        const running = tasks.find(t => t.status === 'running' || t.status === 'pending');
+        if (running) {
+          document.getElementById('particle-fwd').style.display = 'block';
+          document.getElementById('flow-status-badge').textContent = 'ACTIVE';
+          document.getElementById('flow-status-badge').style.color = '#F59E0B';
+        }
+
+      } catch(e) {
+        console.error('Tasks load failed:', e);
+      }
+    }
+
+    // ── Initial load ───────────────────────────────────────────────────────
+    async function init() {
+      await Promise.all([loadHealth(), loadTasks()]);
+      loadSummary(); // derives from tasks already loaded
+    }
+
+    init();
+
+    // ── Polling: refresh every 10 seconds ─────────────────────────────────
+    setInterval(() => {
+      loadTasks().then(() => loadSummary());
+    }, 10000);
+
+    // Refresh health every 30 seconds
+    setInterval(loadHealth, 30000);
   </script>
 </body>
 </html>
