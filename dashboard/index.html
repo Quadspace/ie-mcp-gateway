@@ -45,6 +45,29 @@
   .version-tag { font-size: 11px; color: var(--text3); font-family: 'SF Mono', 'Fira Code', monospace; }
   .refresh-indicator { font-size: 10px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
   .refresh-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse 3s infinite; }
+  .refresh-dot.ws-live { background: var(--success); animation: pulse 1.5s infinite; }
+  .refresh-dot.ws-offline { background: var(--error); animation: none; }
+  /* Task detail drawer */
+  .drawer-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200; }
+  .drawer-overlay.open { display: block; }
+  .drawer { position: fixed; right: 0; top: 0; bottom: 0; width: min(600px, 95vw); background: var(--surface); border-left: 1px solid var(--border2); z-index: 201; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.2s ease; }
+  .drawer.open { transform: translateX(0); }
+  .drawer-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .drawer-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .drawer-close { background: none; border: 1px solid var(--border2); color: var(--text2); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  .drawer-close:hover { border-color: var(--accent); color: var(--accent); }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+  .drawer-section { display: flex; flex-direction: column; gap: 6px; }
+  .drawer-label { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; }
+  .drawer-content { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; font-size: 12px; color: var(--text2); font-family: "SF Mono", "Fira Code", monospace; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; line-height: 1.6; }
+  .drawer-meta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .drawer-meta-item { display: flex; flex-direction: column; gap: 3px; }
+  /* Flash new row */
+  @keyframes rowFlash { 0% { background: rgba(154,221,38,0.15); } 100% { background: transparent; } }
+  .row-new { animation: rowFlash 1.5s ease-out; }
+  /* Clickable rows */
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--surface2); }
 
   /* Endpoint Banner */
   .endpoint-banner { background: linear-gradient(135deg, #0a1500 0%, var(--surface2) 100%); border: 1px solid #1a3000; margin: 20px 32px 0; padding: 14px 20px; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
@@ -278,8 +301,8 @@
     <div class="table-header">
       <div class="section-title">Recent Task History</div>
       <div class="refresh-indicator">
-        <div class="refresh-dot"></div>
-        <span>Auto-refreshes every 10s</span>
+        <div class="refresh-dot ws-offline" id="ws-dot"></div>
+        <span id="ws-label">Connecting...</span>
       </div>
     </div>
     <table>
@@ -368,7 +391,7 @@
       document.getElementById('stat-last-tool').textContent = last.tool || '—';
       document.getElementById('stat-last-time').textContent = fmtTime(last.timestamp);
       tbody.innerHTML = tasks.map(t=>`
-        <tr>
+        <tr data-task-id="${t.task_id}">
           <td style="color:var(--text3);font-size:11px;white-space:nowrap;">${fmtTime(t.timestamp)}</td>
           <td><span class="tool-tag">${t.tool||'—'}</span></td>
           <td><div class="prompt-preview" title="${(t.prompt_preview||'').replace(/"/g,'&quot;')}">${t.prompt_preview||'—'}</div></td>
@@ -392,8 +415,126 @@
     document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   }
 
-  refresh();
-  setInterval(refresh, 10000);
+  // ── Task Detail Drawer ────────────────────────────────────────────────────
+  let drawerTask = null;
+  function openDrawer(task) {
+    drawerTask = task;
+    document.getElementById('drawer-tool').textContent = task.tool || '—';
+    document.getElementById('drawer-status').textContent = task.status || '—';
+    document.getElementById('drawer-duration').textContent = fmtDuration(task.duration_ms);
+    document.getElementById('drawer-time').textContent = fmtTime(task.timestamp);
+    document.getElementById('drawer-prompt').textContent = task.prompt_preview || '(no prompt)';
+    document.getElementById('drawer-output').textContent = task.output || '(no output yet)';
+    document.getElementById('drawer-overlay').classList.add('open');
+    document.getElementById('drawer').classList.add('open');
+  }
+  function closeDrawer() {
+    document.getElementById('drawer-overlay').classList.remove('open');
+    document.getElementById('drawer').classList.remove('open');
+  }
+  document.getElementById('drawer-overlay').addEventListener('click', closeDrawer);
+
+  // Attach click handlers to task rows
+  function attachRowClicks() {
+    document.querySelectorAll('#task-tbody tr[data-task-id]').forEach(row => {
+      row.addEventListener('click', () => {
+        const taskId = row.dataset.taskId;
+        fetch('/api/tasks?limit=200').then(r=>r.json()).then(tasks => {
+          const t = tasks.find(x => x.task_id === taskId);
+          if (t) openDrawer(t);
+        });
+      });
+    });
+  }
+
+  // ── WebSocket Live Feed ───────────────────────────────────────────────────
+  let ws = null;
+  let wsReconnectTimer = null;
+
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = proto + '//' + location.host + '/ws/tasks';
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      document.getElementById('ws-dot').className = 'refresh-dot ws-live';
+      document.getElementById('ws-label').textContent = '● Live';
+      if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+    };
+
+    ws.onmessage = (evt) => {
+      try {
+        const data = JSON.parse(evt.data);
+        if (data.type !== 'task_update') return;
+        const tbody = document.getElementById('task-tbody');
+        // Remove empty-state row if present
+        const empty = tbody.querySelector('tr td[colspan]');
+        if (empty) tbody.innerHTML = '';
+        // Check if row already exists (update it) or prepend new row
+        const existing = tbody.querySelector(`tr[data-task-id="${data.task_id}"]`);
+        const rowHtml = `
+          <tr data-task-id="${data.task_id}" class="row-new">
+            <td style="color:var(--text3);font-size:11px;white-space:nowrap;">${fmtTime(data.timestamp)}</td>
+            <td><span class="tool-tag">${data.tool||'—'}</span></td>
+            <td><div class="prompt-preview" title="${(data.prompt_preview||'').replace(/"/g,'&quot;')}">${data.prompt_preview||'—'}</div></td>
+            <td><span class="duration">${fmtDuration(data.duration_ms)}</span></td>
+            <td>${statusBadge(data.status)}</td>
+          </tr>`;
+        if (existing) {
+          existing.outerHTML = rowHtml;
+        } else {
+          tbody.insertAdjacentHTML('afterbegin', rowHtml);
+        }
+        attachRowClicks();
+        // Update stats
+        document.getElementById('stat-last-tool').textContent = data.tool || '—';
+        document.getElementById('stat-last-time').textContent = fmtTime(data.timestamp);
+        // Refresh header stats
+        loadHealth();
+      } catch(e) {}
+    };
+
+    ws.onclose = () => {
+      document.getElementById('ws-dot').className = 'refresh-dot ws-offline';
+      document.getElementById('ws-label').textContent = 'Reconnecting...';
+      wsReconnectTimer = setTimeout(connectWS, 3000);
+    };
+
+    ws.onerror = () => { ws.close(); };
+  }
+
+  // Initial load then connect WebSocket
+  refresh().then(() => { attachRowClicks(); connectWS(); });
+  // Keep health/config fresh every 30s even without WS events
+  setInterval(() => { loadHealth(); loadConfig(); }, 30000);
 </script>
+
+<!-- Task Detail Drawer -->
+<div class="drawer-overlay" id="drawer-overlay"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-header">
+    <span class="drawer-title">Task Detail</span>
+    <button class="drawer-close" onclick="closeDrawer()">✕ Close</button>
+  </div>
+  <div class="drawer-body">
+    <div class="drawer-section">
+      <div class="drawer-label">Metadata</div>
+      <div class="drawer-meta">
+        <div class="drawer-meta-item"><div class="drawer-label">Tool</div><div id="drawer-tool" style="font-size:12px;color:var(--accent);">—</div></div>
+        <div class="drawer-meta-item"><div class="drawer-label">Status</div><div id="drawer-status" style="font-size:12px;color:var(--text);">—</div></div>
+        <div class="drawer-meta-item"><div class="drawer-label">Duration</div><div id="drawer-duration" style="font-size:12px;color:var(--text);">—</div></div>
+        <div class="drawer-meta-item"><div class="drawer-label">Time</div><div id="drawer-time" style="font-size:12px;color:var(--text2);">—</div></div>
+      </div>
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-label">Prompt</div>
+      <div class="drawer-content" id="drawer-prompt">—</div>
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-label">Output</div>
+      <div class="drawer-content" id="drawer-output">—</div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
