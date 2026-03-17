@@ -21,6 +21,7 @@ import json
 import time
 import uuid
 import sqlite3
+import hashlib
 import asyncio
 import logging
 import subprocess
@@ -48,7 +49,7 @@ TASK_STREAMS: dict[str, asyncio.Queue] = {}
 TASK_PROCESSES: dict[str, asyncio.subprocess.Process] = {}
 
 # Orchestrator-controlled gateway — Manus has full kill/diff/stream control
-VERSION = "8.16.0"
+VERSION = "8.17.0"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
 _ANSI_RE = re.compile(
@@ -140,6 +141,56 @@ def init_db():
     if not EMPTY_MCP_CFG.exists():
         EMPTY_MCP_CFG.write_text('{"mcpServers":{}}')
         logger.info(f"Created empty MCP config: {EMPTY_MCP_CFG}")
+
+# Self-Learning Outcomes DB
+OUTCOMES_DB_PATH = Path(os.environ.get("OUTCOMES_DB_PATH", str(CONFIG_DIR / "outcomes.db")))
+
+def _init_outcomes_db():
+    conn = sqlite3.connect(str(OUTCOMES_DB_PATH))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS task_outcomes (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id         TEXT    NOT NULL,
+            timestamp_utc   TEXT    NOT NULL,
+            instance_id     TEXT    NOT NULL,
+            task_type       TEXT    NOT NULL,
+            status          TEXT    NOT NULL,
+            duration_s      REAL    NOT NULL,
+            credits_used    INTEGER DEFAULT 0,
+            key_learning    TEXT    DEFAULT '',
+            error_class     TEXT    DEFAULT '',
+            agent_version   TEXT    DEFAULT '',
+            gateway_version TEXT    NOT NULL,
+            skill_version   TEXT    DEFAULT '',
+            prompt_hash     TEXT    DEFAULT '',
+            output_length   INTEGER DEFAULT 0
+        )
+    """)
+    conn.commit()
+    conn.close()
+    logger.info(f"Outcomes DB ready: {OUTCOMES_DB_PATH}")
+
+_init_outcomes_db()
+_INSTANCE_ID = hashlib.sha256(os.environ.get("GATEWAY_TOKEN", "default").encode()).hexdigest()[:16]
+
+def log_outcome(task_id: str, task_type: str, status: str, duration_s: float, prompt: str = '', output: str = '', error_class: str = '', credits_used: int = 0, key_learning: str = ''):
+    try:
+        import datetime
+        conn = sqlite3.connect(str(OUTCOMES_DB_PATH))
+        conn.execute(
+            'INSERT INTO task_outcomes (task_id, timestamp_utc, instance_id, task_type, status, '
+            'duration_s, credits_used, key_learning, error_class, agent_version, gateway_version, '
+            'skill_version, prompt_hash, output_length) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            (task_id, datetime.datetime.utcnow().isoformat(), _INSTANCE_ID, task_type, status,
+             round(duration_s, 2), credits_used, key_learning, error_class, 'manus-2026',
+             VERSION, 'claude-coder-v21',
+             hashlib.sha256(prompt.encode()).hexdigest()[:12] if prompt else '',
+             len(output))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f'log_outcome failed: {e}')
 
 # ─── WebSocket Connection Manager ────────────────────────────────────────────
 class _WSManager:
@@ -490,6 +541,7 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
             duration_ms = int((time.time() - start) * 1000)
             msg = f"Task timed out after {timeout}s."
             log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "timeout", msg)
+            log_outcome(task_id, 'claude-coder', 'timeout', time.time() - start, prompt=task)
             await stream_q.put("[ERROR] " + msg)
             await stream_q.put("[DONE]")
             return
@@ -498,6 +550,7 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
         output = "\n".join(all_lines) or f"Task completed with exit code {proc.returncode} (no output)"
         status = "success" if proc.returncode == 0 else "error"
         log_task(task_id, "execute_code_task", tier, tier, task, output, duration_ms, status)
+        log_outcome(task_id, 'claude-coder', status, time.time() - start, prompt=task, output=output, error_class='' if status=='success' else 'ExecutionError')
         logger.info(f"[{task_id}] Completed in {duration_ms}ms, exit={proc.returncode}")
         await stream_q.put("[DONE]")
 
@@ -505,6 +558,7 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
         duration_ms = int((time.time() - start) * 1000)
         msg = f"Error running Claude Code: {e}"
         log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "error", str(e))
+        log_outcome(task_id, 'claude-coder', 'error', time.time() - start, prompt=task, error_class=type(e).__name__)
         logger.error(f"[{task_id}] Exception: {e}")
         await stream_q.put("[ERROR] " + msg)
         await stream_q.put("[DONE]")
@@ -1128,6 +1182,29 @@ async def api_config(request: Request) -> Response:
         "models": MODELS,
         "anthropic_configured": bool(ANTHROPIC_API_KEY),
     })
+
+@mcp.custom_route('/api/outcomes', methods=['GET'])
+async def get_outcomes(request: Request) -> Response:
+    limit = int(request.query_params.get('limit', 100))
+    try:
+        conn = sqlite3.connect(str(OUTCOMES_DB_PATH))
+        rows = conn.execute('SELECT task_id, timestamp_utc, task_type, status, duration_s, credits_used, key_learning, error_class, gateway_version FROM task_outcomes ORDER BY id DESC LIMIT ?', (limit,)).fetchall()
+        conn.close()
+        cols = ['task_id','timestamp_utc','task_type','status','duration_s','credits_used','key_learning','error_class','gateway_version']
+        return Response(json.dumps([dict(zip(cols, r)) for r in rows]), media_type='application/json')
+    except Exception as e:
+        return Response(json.dumps({'error': str(e)}), status_code=500, media_type='application/json')
+
+@mcp.custom_route('/api/outcomes/summary', methods=['GET'])
+async def get_outcomes_summary(request: Request) -> Response:
+    try:
+        conn = sqlite3.connect(str(OUTCOMES_DB_PATH))
+        stats = conn.execute('SELECT COUNT(*), SUM(CASE WHEN status=\'success\' THEN 1 ELSE 0 END), SUM(CASE WHEN status=\'error\' THEN 1 ELSE 0 END), ROUND(AVG(duration_s),1), SUM(credits_used), ROUND(AVG(credits_used),1), COUNT(DISTINCT DATE(timestamp_utc)) FROM task_outcomes').fetchone()
+        conn.close()
+        cols = ['total_tasks','successful','failed','avg_duration_s','total_credits_used','avg_credits_per_task','active_days']
+        return Response(json.dumps(dict(zip(cols, stats))), media_type='application/json')
+    except Exception as e:
+        return Response(json.dumps({'error': str(e)}), status_code=500, media_type='application/json')
 
 # ─── OAuth (for Manus MCP registration) ──────────────────────────────────────
 @mcp.custom_route("/oauth/authorize", methods=["GET"])
