@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.5.5"
+VERSION = "8.6.0"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -369,6 +369,27 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
     """Runs Claude Code in the background and stores result in DB when done."""
     start = time.time()
     try:
+        # Task 1.1: Auto git pull — always work on the latest committed code.
+        # If the pull fails (e.g. merge conflict, no remote), the task errors
+        # immediately with the git message so we never run Claude Code on stale code.
+        git_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", cwd, "pull",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
+        )
+        git_stdout, git_stderr = await asyncio.wait_for(git_proc.communicate(), timeout=30)
+        git_out = git_stdout.decode("utf-8", errors="replace").strip()
+        git_err = git_stderr.decode("utf-8", errors="replace").strip()
+        git_summary = git_out or git_err or "git pull: no output"
+        logger.info(f"[{task_id}] git pull: {git_summary[:120]}")
+        if git_proc.returncode != 0:
+            duration_ms = int((time.time() - start) * 1000)
+            msg = f"git pull failed (exit {git_proc.returncode}): {git_summary}"
+            log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "error", msg)
+            logger.error(f"[{task_id}] {msg}")
+            return
+
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
