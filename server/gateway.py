@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.5.0"
+VERSION = "8.5.1"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -55,7 +55,8 @@ if ENV_FILE.exists():
             k, v = line.split("=", 1)
             os.environ.setdefault(k.strip(), v.strip())
 
-ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "")
 GATEWAY_TOKEN      = os.environ.get("GATEWAY_TOKEN", "ie-gateway-mike-2026")
 PROJECT_PATH       = os.environ.get("PROJECT_PATH", str(HOME / "Documents" / "Dino_One_MCP"))
 NGROK_DOMAIN       = os.environ.get("NGROK_DOMAIN", "dinoonemcp.ngrok.app")
@@ -435,11 +436,9 @@ async def execute_code_task(
     # Log as pending immediately so it shows up in the dashboard
     log_task(task_id, "execute_code_task", tier, tier, task, None, 0, "pending")
 
-    # Build env — pass API key directly, strip OpenRouter/proxy settings
+    # Build env — preserve OpenRouter proxy settings if configured
     env = os.environ.copy()
     env["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
-    env.pop("ANTHROPIC_BASE_URL", None)
-    env.pop("OPENROUTER_API_KEY", None)
 
     # Fix: wrap with 'script -q /dev/null' to create a pseudo-TTY on macOS.
     # Claude Code CLI hangs without a TTY when spawned from a non-interactive
