@@ -32,7 +32,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import TransportSecuritySettings
 from starlette.requests import Request
-from starlette.responses import JSONResponse, HTMLResponse, Response
+from starlette.responses import JSONResponse, HTMLResponse, Response, StreamingResponse
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
@@ -43,7 +43,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.11.0"
+# ─── Live streaming buffers (task_id → asyncio.Queue of stdout lines) ────────
+TASK_STREAMS: dict[str, asyncio.Queue] = {}
+
+VERSION = "8.12.0"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
 _ANSI_RE = re.compile(
@@ -449,29 +452,52 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
             logger.error(f"[{task_id}] {msg}")
             return
 
+        # Create streaming queue so /api/stream/{task_id} can watch live output
+        stream_q: asyncio.Queue = asyncio.Queue()
+        TASK_STREAMS[task_id] = stream_q
+
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            stdin=asyncio.subprocess.DEVNULL,  # Fix: prevent stdin pipe hang
+            stderr=asyncio.subprocess.STDOUT,
+            stdin=asyncio.subprocess.DEVNULL,
             cwd=cwd,
             env=env,
         )
+
+        lines: list[str] = []
+        deadline = time.time() + timeout
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.communicate()
-            duration_ms = int((time.time() - start) * 1000)
-            msg = f"Task timed out after {timeout}s."
-            log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "timeout", msg)
-            logger.info(f"[{task_id}] Timed out after {timeout}s")
-            return
+            while True:
+                if time.time() > deadline:
+                    proc.kill()
+                    await proc.wait()
+                    duration_ms = int((time.time() - start) * 1000)
+                    msg = f"Task timed out after {timeout}s."
+                    log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "timeout", msg)
+                    logger.info(f"[{task_id}] Timed out after {timeout}s")
+                    await stream_q.put(None)
+                    TASK_STREAMS.pop(task_id, None)
+                    return
+                try:
+                    raw = await asyncio.wait_for(proc.stdout.readline(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    if proc.returncode is not None:
+                        break
+                    continue
+                if not raw:
+                    break
+                line = _strip_ansi(raw.decode("utf-8", errors="replace").rstrip())
+                if line:
+                    lines.append(line)
+                    await stream_q.put(line)
+        finally:
+            await proc.wait()
+            await stream_q.put(None)
+            TASK_STREAMS.pop(task_id, None)
 
         duration_ms = int((time.time() - start) * 1000)
-        out = stdout.decode("utf-8", errors="replace").strip()
-        err = stderr.decode("utf-8", errors="replace").strip()
-        output = out or err or f"Task completed with exit code {proc.returncode} (no output captured)"
+        output = "\n".join(lines) or f"Task completed with exit code {proc.returncode} (no output captured)"
         status = "success" if proc.returncode == 0 else "error"
         log_task(task_id, "execute_code_task", tier, tier, task, output, duration_ms, status)
         logger.info(f"[{task_id}] Completed in {duration_ms}ms, exit={proc.returncode}")
@@ -940,6 +966,35 @@ async def api_projects(request: Request) -> Response:
             "has_claude_md": (entry / "CLAUDE.md").is_file(),
         })
     return JSONResponse({"projects": projects, "count": len(projects)})
+
+@mcp.custom_route("/api/stream/{task_id}", methods=["GET"])
+async def api_stream_task(request: Request) -> Response:
+    """SSE stream of live stdout for a running task. Sends one line per event, then [DONE]."""
+    task_id = request.path_params.get("task_id", "")
+    async def event_generator():
+        for _ in range(60):
+            if task_id in TASK_STREAMS:
+                break
+            await asyncio.sleep(0.5)
+        else:
+            yield "data: [ERROR: task not found]\n\n"
+            return
+        q = TASK_STREAMS[task_id]
+        while True:
+            try:
+                line = await asyncio.wait_for(q.get(), timeout=30.0)
+            except asyncio.TimeoutError:
+                yield "data: [HEARTBEAT]\n\n"
+                continue
+            if line is None:
+                yield "data: [DONE]\n\n"
+                return
+            yield f"data: {line}\n\n"
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 @mcp.custom_route("/api/execute_sync", methods=["POST"])
 async def api_execute_sync(request: Request) -> Response:
