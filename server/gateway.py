@@ -43,10 +43,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.10.0"
+VERSION = "8.10.1"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
-_ANSI_RE = re.compile(r'\x1b(?:[@-Z\\-_]|\[[0-9;]*[ -/]*[@-~])')
+_ANSI_RE = re.compile(
+    r"(?:\x1B[@-Z\\-_]|[\x80-\x9A\x9C-\x9F]|(?:\x1B\[|\x9B)[0-?]*[ -/]*[@-~]"
+    r"|\x1B\[[<=>?][0-9;]*[A-Za-z]"
+    r"|[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x07])"
+)
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
