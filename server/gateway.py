@@ -49,7 +49,7 @@ TASK_STREAMS: dict[str, asyncio.Queue] = {}
 TASK_PROCESSES: dict[str, asyncio.subprocess.Process] = {}
 
 # Orchestrator-controlled gateway — Manus has full kill/diff/stream control
-VERSION = "8.18.0"
+VERSION = "8.19.0"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
 _ANSI_RE = re.compile(
@@ -1239,6 +1239,169 @@ async def get_outcomes_summary(request: Request) -> Response:
         return Response(json.dumps(dict(zip(cols, stats))), media_type='application/json')
     except Exception as e:
         return Response(json.dumps({'error': str(e)}), status_code=500, media_type='application/json')
+
+# ─── CI Proxy ────────────────────────────────────────────────────────────────
+@mcp.custom_route('/api/ci/{path:path}', methods=['GET'])
+async def ci_proxy(request: Request) -> Response:
+    path = request.path_params.get('path', '')
+    ci_url = f"http://localhost:8766/{path}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(ci_url, params=dict(request.query_params))
+        return Response(resp.text, status_code=resp.status_code, media_type=resp.headers.get('content-type', 'application/json'))
+    except Exception as e:
+        return Response(json.dumps({'error': str(e)}), status_code=502, media_type='application/json')
+
+# ─── ROI Dashboard ────────────────────────────────────────────────────────────
+@mcp.custom_route('/roi', methods=['GET'])
+async def roi_dashboard(request: Request) -> Response:
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>IE.AI // ROI DASHBOARD</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:#0a0a0a;color:#e0e0e0;font-family:'Fira Code','Courier New',monospace;padding:24px;min-height:100vh;}
+  h1{color:#00ff88;font-size:1.4rem;letter-spacing:0.15em;margin-bottom:4px;}
+  .subtitle{color:#00ccff;font-size:0.75rem;letter-spacing:0.2em;margin-bottom:32px;}
+  .stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px;}
+  .card{background:#111;border:1px solid #1a2a1a;border-radius:6px;padding:20px;text-align:center;}
+  .card-label{color:#555;font-size:0.7rem;letter-spacing:0.15em;margin-bottom:8px;}
+  .card-value{color:#00ff88;font-size:2rem;font-weight:700;}
+  .section{background:#111;border:1px solid #1a2a1a;border-radius:6px;padding:20px;margin-bottom:24px;}
+  .section-title{color:#00ccff;font-size:0.8rem;letter-spacing:0.2em;margin-bottom:16px;border-bottom:1px solid #1a3a3a;padding-bottom:8px;}
+  .credits-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+  .credit-box{background:#0d0d0d;border:1px solid #1a2a1a;border-radius:4px;padding:16px;text-align:center;}
+  .credit-box-label{color:#555;font-size:0.7rem;letter-spacing:0.1em;margin-bottom:6px;}
+  .credit-box-value{color:#ffaa00;font-size:1.4rem;font-weight:600;}
+  .savings-row{text-align:center;padding:12px;}
+  .savings-label{color:#555;font-size:0.75rem;letter-spacing:0.15em;margin-bottom:4px;}
+  .savings-value{color:#00ff88;font-size:1.8rem;font-weight:700;}
+  .improvement-item{padding:8px 0;border-bottom:1px solid #1a2a1a;font-size:0.8rem;}
+  .improvement-item:last-child{border-bottom:none;}
+  .imp-id{color:#00ccff;margin-right:8px;}
+  .imp-text{color:#ccc;}
+  .telemetry-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .tele-box{background:#0d0d0d;border:1px solid #1a2a1a;border-radius:4px;padding:16px;text-align:center;}
+  .tele-label{color:#555;font-size:0.7rem;letter-spacing:0.1em;margin-bottom:6px;}
+  .tele-value{color:#00ccff;font-size:1.4rem;font-weight:600;}
+  .refresh-note{color:#333;font-size:0.65rem;text-align:right;margin-top:16px;}
+  .loading{color:#333;font-size:0.8rem;}
+  .error{color:#ff4444;font-size:0.75rem;}
+</style>
+</head>
+<body>
+<h1>IE.AI // SELF-LEARNING ROI DASHBOARD</h1>
+<div class="subtitle">AUTONOMOUS INTELLIGENCE — PERFORMANCE &amp; SAVINGS OVERVIEW</div>
+
+<div class="stats-row">
+  <div class="card"><div class="card-label">TASKS EXECUTED</div><div class="card-value" id="total-tasks">—</div></div>
+  <div class="card"><div class="card-label">SUCCESS RATE</div><div class="card-value" id="success-rate">—</div></div>
+  <div class="card"><div class="card-label">AVG DURATION</div><div class="card-value" id="avg-duration">—</div></div>
+</div>
+
+<div class="section">
+  <div class="section-title">CREDIT SAVINGS</div>
+  <div class="credits-cols">
+    <div class="credit-box">
+      <div class="credit-box-label">WITHOUT IE.AI</div>
+      <div class="credit-box-value" id="cost-without">—</div>
+      <div style="color:#555;font-size:0.65rem;margin-top:4px;">Manus @ $0.10/credit × 15 credits/task</div>
+    </div>
+    <div class="credit-box">
+      <div class="credit-box-label">WITH IE.AI</div>
+      <div class="credit-box-value" id="cost-with">—</div>
+      <div style="color:#555;font-size:0.65rem;margin-top:4px;">Claude Code @ $0.01/task avg</div>
+    </div>
+  </div>
+  <div class="savings-row">
+    <div class="savings-label">SAVINGS</div>
+    <div class="savings-value" id="savings">—</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">IMPROVEMENTS GENERATED</div>
+  <div id="improvements-list"><span class="loading">loading...</span></div>
+</div>
+
+<div class="section">
+  <div class="section-title">TELEMETRY NETWORK</div>
+  <div class="telemetry-grid">
+    <div class="tele-box"><div class="tele-label">UNIQUE INSTANCES</div><div class="tele-value" id="tele-instances">—</div></div>
+    <div class="tele-box"><div class="tele-label">TOTAL EVENTS</div><div class="tele-value" id="tele-events">—</div></div>
+  </div>
+</div>
+
+<div class="refresh-note">AUTO-REFRESH: 30s &nbsp;|&nbsp; LAST UPDATED: <span id="last-updated">—</span></div>
+
+<script>
+async function loadData() {
+  // Outcomes summary
+  try {
+    const r = await fetch('/api/outcomes/summary');
+    const d = await r.json();
+    const total = d.total_tasks || 0;
+    const successful = d.successful || 0;
+    const avgDur = d.avg_duration_s || 0;
+    document.getElementById('total-tasks').textContent = total.toLocaleString();
+    const rate = total > 0 ? ((successful / total) * 100).toFixed(1) : '0.0';
+    document.getElementById('success-rate').textContent = rate + '%';
+    document.getElementById('avg-duration').textContent = avgDur + 's';
+    // Credit savings
+    const costWithout = (total * 15 * 0.10).toFixed(2);
+    const costWith = (total * 0.01).toFixed(2);
+    const savings = (parseFloat(costWithout) - parseFloat(costWith)).toFixed(2);
+    document.getElementById('cost-without').textContent = '$' + costWithout;
+    document.getElementById('cost-with').textContent = '$' + costWith;
+    document.getElementById('savings').textContent = '$' + savings;
+  } catch(e) {
+    ['total-tasks','success-rate','avg-duration','cost-without','cost-with','savings'].forEach(id => {
+      document.getElementById(id).innerHTML = '<span class="error">ERR</span>';
+    });
+  }
+
+  // Improvements
+  try {
+    const r = await fetch('/api/ci/api/improvements');
+    const items = await r.json();
+    const list = document.getElementById('improvements-list');
+    if (!items || items.length === 0) {
+      list.innerHTML = '<span class="loading">no improvements yet</span>';
+    } else {
+      list.innerHTML = items.slice(0, 20).map(imp => {
+        const id = imp.id || imp.improvement_id || '';
+        const text = imp.description || imp.improvement || imp.text || JSON.stringify(imp);
+        return '<div class="improvement-item"><span class="imp-id">#' + id + '</span><span class="imp-text">' + text.substring(0,120) + '</span></div>';
+      }).join('');
+    }
+  } catch(e) {
+    document.getElementById('improvements-list').innerHTML = '<span class="error">CI API unavailable</span>';
+  }
+
+  // Telemetry
+  try {
+    const r = await fetch('/api/ci/api/telemetry/summary');
+    const d = await r.json();
+    document.getElementById('tele-instances').textContent = (d.unique_instances || d.instances || 0).toLocaleString();
+    document.getElementById('tele-events').textContent = (d.total_events || d.events || 0).toLocaleString();
+  } catch(e) {
+    document.getElementById('tele-instances').innerHTML = '<span class="error">—</span>';
+    document.getElementById('tele-events').innerHTML = '<span class="error">—</span>';
+  }
+
+  document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+}
+
+loadData();
+setInterval(loadData, 30000);
+</script>
+</body>
+</html>"""
+    return HTMLResponse(html)
 
 # ─── OAuth (for Manus MCP registration) ──────────────────────────────────────
 @mcp.custom_route("/oauth/authorize", methods=["GET"])
