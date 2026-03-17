@@ -1,9 +1,11 @@
+<!-- v8.10.0 — E1-E5: live feed fix, ANSI strip, projects panel, throughput chart, self-improvement log -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IE.AI — Manus Command Center</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
   :root {
     --bg:        #070707;
@@ -147,6 +149,27 @@
 
   @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } .two-col { grid-template-columns: 1fr; } }
   @media (max-width: 700px) { .header { padding: 0 16px; } .main { padding: 12px 16px 32px; } .endpoint-banner { flex-direction: column; align-items: flex-start; margin: 12px 16px 0; } .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; } }
+
+  /* Projects Panel */
+  .projects-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px; }
+  .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; }
+  .project-card { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--radius); padding: 14px; }
+  .project-name { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+  .project-commit { font-size: 11px; color: var(--text2); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge-claude { background: rgba(34,197,94,0.12); color: var(--success); border: 1px solid rgba(34,197,94,0.2); }
+  .badge-no-claude { background: rgba(245,158,11,0.12); color: var(--warning); border: 1px solid rgba(245,158,11,0.2); }
+
+  /* Chart Panel */
+  .chart-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px; }
+  .chart-container { position: relative; height: 180px; margin-top: 14px; }
+
+  /* Self-Improvement Log */
+  .self-improve-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px; }
+  .self-improve-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .self-improve-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); }
+  .self-improve-time { font-size: 10px; color: var(--text3); white-space: nowrap; font-family: 'SF Mono', 'Fira Code', monospace; flex-shrink: 0; }
+  .self-improve-prompt { font-size: 12px; color: var(--text2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .self-improve-empty { text-align: center; padding: 24px; color: var(--text3); font-size: 12px; font-style: italic; }
 </style>
 </head>
 <body>
@@ -203,6 +226,27 @@
       <div class="stat-label">Last Tool Used</div>
       <div class="stat-value" id="stat-last-tool" style="font-size:15px; padding-top:8px; word-break:break-all;">—</div>
       <div class="stat-sub" id="stat-last-time">—</div>
+    </div>
+  </div>
+
+  <!-- E3: Projects Panel -->
+  <div class="projects-panel">
+    <div class="section-header">
+      <div class="section-title">Projects</div>
+      <div class="section-badge" id="projects-badge">—</div>
+    </div>
+    <div class="projects-grid" id="projects-grid">
+      <div style="color:var(--text3);font-size:12px;">Loading projects...</div>
+    </div>
+  </div>
+
+  <!-- E4: Throughput Chart -->
+  <div class="chart-panel">
+    <div class="section-header">
+      <div class="section-title">Task Throughput — Last 12 Hours</div>
+    </div>
+    <div class="chart-container">
+      <canvas id="throughput-chart"></canvas>
     </div>
   </div>
 
@@ -321,9 +365,26 @@
     </table>
   </div>
 
+  <!-- E5: Self-Improvement Log -->
+  <div class="self-improve-panel">
+    <div class="section-header">
+      <div class="section-title">Gateway Self-Improvements</div>
+      <div class="section-badge" id="self-improve-badge">0</div>
+    </div>
+    <div class="self-improve-list" id="self-improve-list">
+      <div class="self-improve-empty">Loading...</div>
+    </div>
+  </div>
+
 </main>
 
 <script>
+  // E2: Strip ANSI escape codes from output
+  function stripAnsi(str) {
+    if (!str) return str;
+    return str.replace(/[\u001b\u009b][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]|[\b\r]|\^[A-Z]/g, '');
+  }
+
   function fmtDuration(ms) {
     if (!ms) return '—';
     if (ms < 1000) return ms + 'ms';
@@ -374,30 +435,142 @@
     } catch(e) {}
   }
 
+  function updateTaskTable(tasks) {
+    const tbody = document.getElementById('task-tbody');
+    if (!tasks.length) {
+      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">⚡</div><p>No tasks yet. Manus will send tasks here through the MCP endpoint.</p></div></td></tr>';
+      return;
+    }
+    const withDur = tasks.filter(t=>t.duration_ms);
+    if (withDur.length) {
+      const avg = withDur.reduce((s,t)=>s+t.duration_ms,0)/withDur.length;
+      document.getElementById('stat-avg-dur').textContent = (avg/1000).toFixed(1);
+    }
+    const last = tasks[0];
+    document.getElementById('stat-last-tool').textContent = last.tool || '—';
+    document.getElementById('stat-last-time').textContent = fmtTime(last.timestamp);
+    tbody.innerHTML = tasks.map(t=>`
+      <tr data-task-id="${t.task_id}">
+        <td style="color:var(--text3);font-size:11px;white-space:nowrap;">${fmtTime(t.timestamp)}</td>
+        <td><span class="tool-tag">${t.tool||'—'}</span></td>
+        <td><div class="prompt-preview" title="${stripAnsi(t.prompt_preview||'').replace(/"/g,'&quot;')}">${stripAnsi(t.prompt_preview||'—')}</div></td>
+        <td><span class="duration">${fmtDuration(t.duration_ms)}</span></td>
+        <td>${statusBadge(t.status)}</td>
+      </tr>`).join('');
+    attachRowClicks();
+  }
+
   async function loadTasks() {
     try {
       const tasks = await fetch('/api/tasks?limit=25').then(r=>r.json());
-      const tbody = document.getElementById('task-tbody');
-      if (!tasks.length) {
-        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">⚡</div><p>No tasks yet. Manus will send tasks here through the MCP endpoint.</p></div></td></tr>';
+      updateTaskTable(tasks);
+    } catch(e) {}
+  }
+
+  // E3: Projects Panel
+  async function loadProjects() {
+    try {
+      const projects = await fetch('/api/projects').then(r=>r.json());
+      const grid = document.getElementById('projects-grid');
+      document.getElementById('projects-badge').textContent = projects.length + ' repos';
+      if (!projects.length) {
+        grid.innerHTML = '<div style="color:var(--text3);font-size:12px;">No projects found.</div>';
         return;
       }
-      const withDur = tasks.filter(t=>t.duration_ms);
-      if (withDur.length) {
-        const avg = withDur.reduce((s,t)=>s+t.duration_ms,0)/withDur.length;
-        document.getElementById('stat-avg-dur').textContent = (avg/1000).toFixed(1);
+      grid.innerHTML = projects.map(p => `
+        <div class="project-card">
+          <div class="project-name">${p.name}</div>
+          <div class="project-commit" title="${(p.last_commit||'').replace(/"/g,'&quot;')}">${(p.last_commit||'—').slice(0,60)}</div>
+          ${p.has_claude_md
+            ? '<span class="badge badge-claude">CLAUDE.MD ✓</span>'
+            : '<span class="badge badge-no-claude">NO CLAUDE.MD</span>'}
+        </div>`).join('');
+    } catch(e) {
+      document.getElementById('projects-grid').innerHTML = '<div style="color:var(--text3);font-size:12px;">Failed to load projects.</div>';
+    }
+  }
+
+  // E4: Throughput Chart
+  let throughputChart = null;
+  async function loadThroughputChart() {
+    try {
+      const tasks = await fetch('/api/tasks?limit=200').then(r=>r.json());
+      const now = new Date();
+      const buckets = [];
+      const labels = [];
+      for (let i = 11; i >= 0; i--) {
+        const h = new Date(now);
+        h.setHours(h.getHours() - i, 0, 0, 0);
+        buckets.push({ start: h.getTime(), count: 0 });
+        const hr = h.getHours();
+        const ampm = hr >= 12 ? 'PM' : 'AM';
+        labels.push(((hr % 12) || 12) + ampm);
       }
-      const last = tasks[0];
-      document.getElementById('stat-last-tool').textContent = last.tool || '—';
-      document.getElementById('stat-last-time').textContent = fmtTime(last.timestamp);
-      tbody.innerHTML = tasks.map(t=>`
-        <tr data-task-id="${t.task_id}">
-          <td style="color:var(--text3);font-size:11px;white-space:nowrap;">${fmtTime(t.timestamp)}</td>
-          <td><span class="tool-tag">${t.tool||'—'}</span></td>
-          <td><div class="prompt-preview" title="${(t.prompt_preview||'').replace(/"/g,'&quot;')}">${t.prompt_preview||'—'}</div></td>
-          <td><span class="duration">${fmtDuration(t.duration_ms)}</span></td>
-          <td>${statusBadge(t.status)}</td>
-        </tr>`).join('');
+      tasks.forEach(t => {
+        if (!t.timestamp) return;
+        const ts = new Date(t.timestamp + 'Z').getTime();
+        for (let i = 0; i < buckets.length; i++) {
+          const end = (i < buckets.length - 1) ? buckets[i+1].start : now.getTime() + 3600000;
+          if (ts >= buckets[i].start && ts < end) { buckets[i].count++; break; }
+        }
+      });
+      const counts = buckets.map(b => b.count);
+      const maxVal = Math.max(...counts, 0);
+      const ctx = document.getElementById('throughput-chart').getContext('2d');
+      if (throughputChart) {
+        throughputChart.data.labels = labels;
+        throughputChart.data.datasets[0].data = counts;
+        throughputChart.options.scales.y.max = maxVal + 1;
+        throughputChart.update();
+      } else {
+        throughputChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              data: counts,
+              backgroundColor: 'rgba(154,221,38,0.7)',
+              borderColor: '#9ADD26',
+              borderWidth: 1,
+              borderRadius: 4,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { ticks: { color: '#888', font: { size: 11 } }, grid: { color: '#242424' } },
+              y: { ticks: { color: '#888', font: { size: 11 }, stepSize: 1 }, grid: { color: '#242424' }, min: 0, max: maxVal + 1 }
+            }
+          }
+        });
+      }
+    } catch(e) {}
+  }
+
+  // E5: Self-Improvement Log
+  async function loadSelfImprovements() {
+    try {
+      const tasks = await fetch('/api/tasks?limit=200').then(r=>r.json());
+      const filtered = tasks.filter(t => {
+        const prompt = (t.prompt_preview || '').toLowerCase();
+        const wd = (t.working_dir || '').toLowerCase();
+        return prompt.includes('ie_mcp_gateway') || prompt.includes('gateway') ||
+               wd.includes('ie_mcp_gateway') || wd.includes('gateway');
+      });
+      document.getElementById('self-improve-badge').textContent = filtered.length;
+      const list = document.getElementById('self-improve-list');
+      if (!filtered.length) {
+        list.innerHTML = '<div class="self-improve-empty">No self-improvements yet — ask Manus to enhance the gateway.</div>';
+        return;
+      }
+      list.innerHTML = filtered.map(t => `
+        <div class="self-improve-item">
+          <span class="self-improve-time">${fmtTime(t.timestamp)}</span>
+          ${statusBadge(t.status)}
+          <span class="self-improve-prompt" title="${stripAnsi(t.prompt_preview||'').replace(/"/g,'&quot;')}">${stripAnsi(t.prompt_preview||'—').slice(0,80)}</span>
+        </div>`).join('');
     } catch(e) {}
   }
 
@@ -423,8 +596,8 @@
     document.getElementById('drawer-status').textContent = task.status || '—';
     document.getElementById('drawer-duration').textContent = fmtDuration(task.duration_ms);
     document.getElementById('drawer-time').textContent = fmtTime(task.timestamp);
-    document.getElementById('drawer-prompt').textContent = task.prompt_preview || '(no prompt)';
-    document.getElementById('drawer-output').textContent = task.output || '(no output yet)';
+    document.getElementById('drawer-prompt').textContent = stripAnsi(task.prompt_preview || '(no prompt)');
+    document.getElementById('drawer-output').textContent = stripAnsi(task.output || '(no output yet)');
     document.getElementById('drawer-overlay').classList.add('open');
     document.getElementById('drawer').classList.add('open');
   }
@@ -434,7 +607,6 @@
   }
   document.getElementById('drawer-overlay').addEventListener('click', closeDrawer);
 
-  // Attach click handlers to task rows
   function attachRowClicks() {
     document.querySelectorAll('#task-tbody tr[data-task-id]').forEach(row => {
       row.addEventListener('click', () => {
@@ -447,18 +619,66 @@
     });
   }
 
-  // ── WebSocket Live Feed ───────────────────────────────────────────────────
+  // ── E1: WebSocket + SSE Fallback Live Feed ────────────────────────────────
   let ws = null;
   let wsReconnectTimer = null;
+  let sseTimer = null;
+  let wsConnected = false;
+  let wsFailed = false;
+  let wsFailTimer = null;
+
+  function setLiveStatus(mode) {
+    const dot = document.getElementById('ws-dot');
+    const label = document.getElementById('ws-label');
+    if (mode === 'ws') {
+      dot.className = 'refresh-dot ws-live';
+      label.textContent = '● Live (WS)';
+    } else if (mode === 'sse') {
+      dot.className = 'refresh-dot';
+      label.textContent = '● Live (SSE)';
+    } else {
+      dot.className = 'refresh-dot ws-offline';
+      label.textContent = '● Reconnecting...';
+    }
+  }
+
+  function startSSEFallback() {
+    if (sseTimer) return;
+    setLiveStatus('sse');
+    sseTimer = setInterval(async () => {
+      try {
+        const tasks = await fetch('/api/tasks?limit=25').then(r=>r.json());
+        updateTaskTable(tasks);
+        loadHealth();
+      } catch(e) {}
+    }, 3000);
+  }
+
+  function stopSSEFallback() {
+    if (sseTimer) { clearInterval(sseTimer); sseTimer = null; }
+  }
 
   function connectWS() {
+    wsFailed = false;
+    wsConnected = false;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = proto + '//' + location.host + '/ws/tasks';
     ws = new WebSocket(url);
 
+    // If WS doesn't connect within 3 seconds, fall back to SSE polling
+    wsFailTimer = setTimeout(() => {
+      if (!wsConnected) {
+        wsFailed = true;
+        ws.close();
+        startSSEFallback();
+      }
+    }, 3000);
+
     ws.onopen = () => {
-      document.getElementById('ws-dot').className = 'refresh-dot ws-live';
-      document.getElementById('ws-label').textContent = '● Live';
+      wsConnected = true;
+      if (wsFailTimer) { clearTimeout(wsFailTimer); wsFailTimer = null; }
+      stopSSEFallback();
+      setLiveStatus('ws');
       if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
     };
 
@@ -467,16 +687,14 @@
         const data = JSON.parse(evt.data);
         if (data.type !== 'task_update') return;
         const tbody = document.getElementById('task-tbody');
-        // Remove empty-state row if present
         const empty = tbody.querySelector('tr td[colspan]');
         if (empty) tbody.innerHTML = '';
-        // Check if row already exists (update it) or prepend new row
         const existing = tbody.querySelector(`tr[data-task-id="${data.task_id}"]`);
         const rowHtml = `
           <tr data-task-id="${data.task_id}" class="row-new">
             <td style="color:var(--text3);font-size:11px;white-space:nowrap;">${fmtTime(data.timestamp)}</td>
             <td><span class="tool-tag">${data.tool||'—'}</span></td>
-            <td><div class="prompt-preview" title="${(data.prompt_preview||'').replace(/"/g,'&quot;')}">${data.prompt_preview||'—'}</div></td>
+            <td><div class="prompt-preview" title="${stripAnsi(data.prompt_preview||'').replace(/"/g,'&quot;')}">${stripAnsi(data.prompt_preview||'—')}</div></td>
             <td><span class="duration">${fmtDuration(data.duration_ms)}</span></td>
             <td>${statusBadge(data.status)}</td>
           </tr>`;
@@ -486,27 +704,37 @@
           tbody.insertAdjacentHTML('afterbegin', rowHtml);
         }
         attachRowClicks();
-        // Update stats
         document.getElementById('stat-last-tool').textContent = data.tool || '—';
         document.getElementById('stat-last-time').textContent = fmtTime(data.timestamp);
-        // Refresh header stats
         loadHealth();
       } catch(e) {}
     };
 
     ws.onclose = () => {
-      document.getElementById('ws-dot').className = 'refresh-dot ws-offline';
-      document.getElementById('ws-label').textContent = 'Reconnecting...';
-      wsReconnectTimer = setTimeout(connectWS, 3000);
+      wsConnected = false;
+      if (wsFailTimer) { clearTimeout(wsFailTimer); wsFailTimer = null; }
+      if (!wsFailed) {
+        setLiveStatus('reconnecting');
+        wsReconnectTimer = setTimeout(connectWS, 3000);
+      }
     };
 
     ws.onerror = () => { ws.close(); };
   }
 
-  // Initial load then connect WebSocket
-  refresh().then(() => { attachRowClicks(); connectWS(); });
-  // Keep health/config fresh every 30s even without WS events
+  // Initial load then connect WebSocket and load new panels
+  refresh().then(() => {
+    attachRowClicks();
+    loadProjects();
+    loadThroughputChart();
+    loadSelfImprovements();
+    connectWS();
+  });
+
+  // Keep panels fresh every 30s
   setInterval(() => { loadHealth(); loadConfig(); }, 30000);
+  setInterval(() => { loadProjects(); loadSelfImprovements(); }, 30000);
+  setInterval(() => { loadThroughputChart(); }, 30000);
 </script>
 
 <!-- Task Detail Drawer -->
