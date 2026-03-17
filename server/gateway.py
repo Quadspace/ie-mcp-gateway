@@ -43,7 +43,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.10.2"
+VERSION = "8.10.3"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
 _ANSI_RE = re.compile(
@@ -584,7 +584,7 @@ def _strip_ansi(text: str) -> str:
     # Remove control characters (backspace, bell, null, etc.)
     cleaned = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", cleaned)
     # Remove ^D (EOF marker from macOS script wrapper)
-    cleaned = cleaned.replace("\x04", "")
+    cleaned = cleaned.replace("\x04", "").replace("^D", "").replace("\x08", "")
     # Remove script(1) session header/footer artifacts like "9;4;0;0;"
     cleaned = re.sub(r"^[\d;]+\s*", "", cleaned.strip())
     cleaned = re.sub(r"\s*[\d;]+$", "", cleaned.strip())
