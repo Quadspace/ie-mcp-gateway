@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.5.2"
+VERSION = "8.5.3"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -436,14 +436,18 @@ async def execute_code_task(
     # Log as pending immediately so it shows up in the dashboard
     log_task(task_id, "execute_code_task", tier, tier, task, None, 0, "pending")
 
-    # Build env — preserve OpenRouter proxy settings if configured
+    # Build env for Claude Code subprocess.
+    # Claude Code CLI requires a DIRECT Anthropic API key — it does NOT support
+    # OpenRouter or any proxy via ANTHROPIC_BASE_URL. We must:
+    #   1. Use ANTHROPIC_AUTH_TOKEN (the real sk-ant-api03-... key) as ANTHROPIC_API_KEY
+    #   2. Strip ANTHROPIC_BASE_URL so Claude Code hits api.anthropic.com directly
+    #   3. Strip OPENROUTER_API_KEY to avoid confusion
     env = os.environ.copy()
-    # Ensure ANTHROPIC_API_KEY is always set to a real value for Claude Code.
-    # When routing through OpenRouter, ecosystem.config.js sets ANTHROPIC_API_KEY=""
-    # and uses ANTHROPIC_AUTH_TOKEN instead. We must pass the real token as
-    # ANTHROPIC_API_KEY so the Claude Code subprocess can authenticate.
     auth_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     env["ANTHROPIC_API_KEY"] = auth_key
+    env.pop("ANTHROPIC_BASE_URL", None)   # must hit api.anthropic.com directly
+    env.pop("ANTHROPIC_AUTH_TOKEN", None) # avoid duplicate auth confusion
+    env.pop("OPENROUTER_API_KEY", None)   # not used by Claude Code CLI
 
     # Fix: wrap with 'script -q /dev/null' to create a pseudo-TTY on macOS.
     # Claude Code CLI hangs without a TTY when spawned from a non-interactive
