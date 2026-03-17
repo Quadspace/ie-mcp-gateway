@@ -45,8 +45,9 @@ logger = logging.getLogger("ie-mcp-gateway")
 
 # ─── Live streaming buffers (task_id → asyncio.Queue of stdout lines) ────────
 TASK_STREAMS: dict[str, asyncio.Queue] = {}
+TASK_PROCESSES: dict[str, asyncio.subprocess.Process] = {}
 
-VERSION = "8.12.0"
+VERSION = "8.13.0"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
 _ANSI_RE = re.compile(
@@ -464,6 +465,7 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
             cwd=cwd,
             env=env,
         )
+        TASK_PROCESSES[task_id] = proc
 
         lines: list[str] = []
         deadline = time.time() + timeout
@@ -478,6 +480,7 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
                     logger.info(f"[{task_id}] Timed out after {timeout}s")
                     await stream_q.put(None)
                     TASK_STREAMS.pop(task_id, None)
+                    TASK_PROCESSES.pop(task_id, None)
                     return
                 try:
                     raw = await asyncio.wait_for(proc.stdout.readline(), timeout=1.0)
@@ -495,6 +498,7 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
             await proc.wait()
             await stream_q.put(None)
             TASK_STREAMS.pop(task_id, None)
+            TASK_PROCESSES.pop(task_id, None)
 
         duration_ms = int((time.time() - start) * 1000)
         output = "\n".join(lines) or f"Task completed with exit code {proc.returncode} (no output captured)"
@@ -966,6 +970,24 @@ async def api_projects(request: Request) -> Response:
             "has_claude_md": (entry / "CLAUDE.md").is_file(),
         })
     return JSONResponse({"projects": projects, "count": len(projects)})
+
+@mcp.custom_route("/api/tasks/{task_id}/kill", methods=["POST"])
+async def api_kill_task(request: Request) -> Response:
+    """Kill a running Claude Code task. Returns {killed: true/false}."""
+    task_id = request.path_params.get("task_id", "")
+    proc = TASK_PROCESSES.get(task_id)
+    if proc is None:
+        return JSONResponse({"killed": False, "reason": "task not found or already finished"})
+    try:
+        proc.terminate()
+        await asyncio.sleep(0.5)
+        if proc.returncode is None:
+            proc.kill()
+        TASK_PROCESSES.pop(task_id, None)
+        logger.info(f"[{task_id}] Killed by orchestrator")
+        return JSONResponse({"killed": True, "task_id": task_id})
+    except Exception as e:
+        return JSONResponse({"killed": False, "reason": str(e)})
 
 @mcp.custom_route("/api/stream/{task_id}", methods=["GET"])
 async def api_stream_task(request: Request) -> Response:
