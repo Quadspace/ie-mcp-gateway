@@ -43,7 +43,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.10.1"
+VERSION = "8.10.2"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
 _ANSI_RE = re.compile(
@@ -578,8 +578,19 @@ async def _build_context_prompt(cwd: str, task: str) -> str:
 
 
 def _strip_ansi(text: str) -> str:
-    """Remove ANSI escape codes from a string."""
-    return _ANSI_RE.sub("", text)
+    """Remove ANSI escape codes and TTY artifacts from Claude Code output."""
+    # Remove ANSI/VT escape sequences
+    cleaned = _ANSI_RE.sub("", text)
+    # Remove control characters (backspace, bell, null, etc.)
+    cleaned = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", cleaned)
+    # Remove ^D (EOF marker from macOS script wrapper)
+    cleaned = cleaned.replace("\x04", "")
+    # Remove script(1) session header/footer artifacts like "9;4;0;0;"
+    cleaned = re.sub(r"^[\d;]+\s*", "", cleaned.strip())
+    cleaned = re.sub(r"\s*[\d;]+$", "", cleaned.strip())
+    # Normalize line endings
+    cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+    return cleaned.strip()
 
 
 async def _run_claude_sync(task_id: str, cmd: list, cwd: str, env: dict,
