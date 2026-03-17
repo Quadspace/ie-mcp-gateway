@@ -51,8 +51,9 @@ module.exports = {
       restart_delay: 3000,
       watch: false,
       max_memory_restart: "500M",
-      kill_timeout: 5000,
-      listen_timeout: 10000,
+      kill_timeout: 600000,
+      wait_ready: true,
+      listen_timeout: 15000,
     },
     {
       name: "ie-mcp-ngrok",

@@ -48,7 +48,7 @@ TASK_STREAMS: dict[str, asyncio.Queue] = {}
 TASK_PROCESSES: dict[str, asyncio.subprocess.Process] = {}
 
 # Orchestrator-controlled gateway — Manus has full kill/diff/stream control
-VERSION = "8.15.0"
+VERSION = "8.16.0"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
 _ANSI_RE = re.compile(
@@ -1177,6 +1177,27 @@ mcp._custom_starlette_routes.append(
 )
 
 if __name__ == "__main__":
+    import signal
+
+    def _handle_sigterm(signum, frame):
+        """Graceful shutdown: wait up to 10 min for running tasks to finish."""
+        import sys
+        logger.info("SIGTERM received — waiting for running tasks to drain...")
+        deadline = time.time() + 600  # 10 minute drain window
+        while TASK_PROCESSES and time.time() < deadline:
+            running = list(TASK_PROCESSES.keys())
+            logger.info(f"Draining {len(running)} running task(s): {running}")
+            time.sleep(5)
+        if TASK_PROCESSES:
+            logger.warning(f"Drain timeout — force-killing {len(TASK_PROCESSES)} task(s)")
+            for proc in TASK_PROCESSES.values():
+                try: proc.kill()
+                except: pass
+        logger.info("Graceful shutdown complete.")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
     init_db()
     logger.info(f"Starting IE.AI MCP Gateway v{VERSION}")
     logger.info(f"Anthropic API: {'configured' if ANTHROPIC_API_KEY else 'NOT CONFIGURED — set ANTHROPIC_API_KEY in ~/.config/ie-mcp/.env'}")
