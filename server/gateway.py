@@ -42,7 +42,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.9.0"
+VERSION = "8.9.1"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -756,6 +756,30 @@ async def api_deploy(request: Request) -> Response:
         return JSONResponse({"status": "deployed", "steps": steps})
     except Exception as e:
         return JSONResponse({"status": "error", "error": str(e), "steps": steps}, status_code=500)
+
+@mcp.custom_route("/api/projects", methods=["GET"])
+async def api_projects(request: Request) -> Response:
+    """List all git repos cloned under ~/Documents."""
+    projects = []
+    for entry in sorted(DOCS_DIR.iterdir()):
+        if not entry.is_dir() or not (entry / ".git").is_dir():
+            continue
+        last_commit = ""
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(entry), "log", "-1", "--format=%h %s"],
+                capture_output=True, text=True, timeout=5
+            )
+            last_commit = result.stdout.strip()
+        except Exception:
+            pass
+        projects.append({
+            "name": entry.name,
+            "path": str(entry),
+            "last_commit": last_commit,
+            "has_claude_md": (entry / "CLAUDE.md").is_file(),
+        })
+    return JSONResponse({"projects": projects, "count": len(projects)})
 
 @mcp.custom_route("/api/config", methods=["GET"])
 async def api_config(request: Request) -> Response:
