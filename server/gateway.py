@@ -32,6 +32,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse, HTMLResponse, Response
+from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
@@ -41,7 +42,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.7.0"
+VERSION = "8.7.1"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -678,20 +679,6 @@ async def oauth_token(request: Request) -> Response:
         "expires_in": 86400 * 365,
     })
 
-# ─── WebSocket endpoint ──────────────────────────────────────────────────────
-@mcp.custom_route("/ws/tasks", methods=["GET", "WEBSOCKET"])
-async def ws_tasks(websocket: WebSocket) -> None:
-    """WebSocket endpoint — streams real-time task events to connected dashboards."""
-    await ws_manager.connect(websocket)
-    try:
-        while True:
-            # Keep connection alive; we only push, never pull
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
-    except Exception:
-        ws_manager.disconnect(websocket)
-
 # ─── Dashboard ────────────────────────────────────────────────────────────────
 @mcp.custom_route("/", methods=["GET"])
 async def dashboard(request: Request) -> Response:
@@ -700,7 +687,24 @@ async def dashboard(request: Request) -> Response:
         return HTMLResponse(index.read_text())
     return HTMLResponse(f"<h1>IE.AI MCP Gateway v{VERSION}</h1><p>Dashboard not found.</p>")
 
-# ─── Entry Point ──────────────────────────────────────────────────────────────
+# ─── Entry Point ────────────────────────────────────────────────────────────────
+async def _ws_tasks_handler(websocket: WebSocket) -> None:
+    """WebSocket handler — streams real-time task events to connected dashboards."""
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # keep alive; we only push
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception:
+        ws_manager.disconnect(websocket)
+
+# Register the WebSocket route directly on FastMCP's internal route list
+# (custom_route only supports HTTP Route objects, not WebSocketRoute)
+mcp._custom_starlette_routes.append(
+    WebSocketRoute("/ws/tasks", endpoint=_ws_tasks_handler, name="ws_tasks")
+)
+
 if __name__ == "__main__":
     init_db()
     logger.info(f"Starting IE.AI MCP Gateway v{VERSION}")
