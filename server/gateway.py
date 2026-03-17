@@ -32,6 +32,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse, HTMLResponse, Response
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -40,7 +41,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.6.0"
+VERSION = "8.7.0"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -123,14 +124,46 @@ def init_db():
         EMPTY_MCP_CFG.write_text('{"mcpServers":{}}')
         logger.info(f"Created empty MCP config: {EMPTY_MCP_CFG}")
 
+# ─── WebSocket Connection Manager ────────────────────────────────────────────
+class _WSManager:
+    """Tracks all open WebSocket connections and broadcasts task updates."""
+    def __init__(self):
+        self._connections: set[WebSocket] = set()
+
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self._connections.add(ws)
+        logger.info(f"[WS] Client connected ({len(self._connections)} total)")
+
+    def disconnect(self, ws: WebSocket):
+        self._connections.discard(ws)
+        logger.info(f"[WS] Client disconnected ({len(self._connections)} remaining)")
+
+    async def broadcast(self, payload: dict):
+        if not self._connections:
+            return
+        msg = json.dumps(payload)
+        dead = set()
+        for ws in self._connections:
+            try:
+                await ws.send_text(msg)
+            except Exception:
+                dead.add(ws)
+        for ws in dead:
+            self._connections.discard(ws)
+
+ws_manager = _WSManager()
+
+
 def log_task(task_id, tool, tier, model, prompt, output, duration_ms, status, error=None):
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
     conn.execute(
         """INSERT INTO tasks
            (timestamp, task_id, tool, tier, model, prompt_preview, output, duration_ms, status, error_message)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            ts,
             task_id,
             tool,
             tier,
@@ -144,6 +177,20 @@ def log_task(task_id, tool, tier, model, prompt, output, duration_ms, status, er
     )
     conn.commit()
     conn.close()
+    # Broadcast the update to all connected WebSocket clients
+    asyncio.get_event_loop().call_soon_threadsafe(
+        lambda: asyncio.ensure_future(ws_manager.broadcast({
+            "type": "task_update",
+            "task_id": task_id,
+            "tool": tool,
+            "tier": tier,
+            "status": status,
+            "duration_ms": duration_ms,
+            "timestamp": ts,
+            "prompt_preview": (prompt or "")[:300],
+            "output": (output or "")[:2000],
+        }))
+    )
 
 # ─── MCP Server ───────────────────────────────────────────────────────────────
 mcp = FastMCP(
@@ -630,6 +677,20 @@ async def oauth_token(request: Request) -> Response:
         "token_type": "bearer",
         "expires_in": 86400 * 365,
     })
+
+# ─── WebSocket endpoint ──────────────────────────────────────────────────────
+@mcp.custom_route("/ws/tasks", methods=["GET", "WEBSOCKET"])
+async def ws_tasks(websocket: WebSocket) -> None:
+    """WebSocket endpoint — streams real-time task events to connected dashboards."""
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive; we only push, never pull
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception:
+        ws_manager.disconnect(websocket)
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
 @mcp.custom_route("/", methods=["GET"])
