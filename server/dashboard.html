@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IE.AI Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #0A0A0A;
+      --lime:         #9ADD26;
+      --purple:       #4632DA;
+      --muted:        #818287;
+      --error:        #FF3C00;
+      --card-bg:      #111111;
+      --border:       rgba(154, 221, 38, 0.2);
+      --border-faint: rgba(154, 221, 38, 0.15);
+      --border-mid:   rgba(154, 221, 38, 0.3);
+      --border-dim:   rgba(154, 221, 38, 0.1);
+      --text:         #F5F5F5;
+      --font-display: 'Rajdhani', sans-serif;
+      --font-body:    'Inter', sans-serif;
+      --font-mono:    'JetBrains Mono', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    /* Subtle grid overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 39px,
+          rgba(154, 221, 38, 0.03) 39px,
+          rgba(154, 221, 38, 0.03) 40px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 39px,
+          rgba(154, 221, 38, 0.03) 39px,
+          rgba(154, 221, 38, 0.03) 40px
+        );
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--lime); border-radius: 2px; }
+
+    /* ── Layout Shell ── */
+    #app {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* ── ROW 1: Header Bar ── */
+    #header {
+      flex: 0 0 60px;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border-mid);
+      gap: 24px;
+    }
+
+    #header-left {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      flex: 1;
+    }
+
+    #logo {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 22px;
+      color: var(--lime);
+      letter-spacing: 0.04em;
+      line-height: 1;
+    }
+
+    #logo-sub {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    #header-center {
+      flex: 1;
+      text-align: center;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    #header-right {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 16px;
+    }
+
+    #version-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--lime);
+      background: rgba(154, 221, 38, 0.08);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 8px;
+    }
+
+    #live-clock {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    /* ── ROW 2: Stat Cards ── */
+    #stat-row {
+      flex: 0 0 180px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border-faint);
+      border-bottom: 1px solid var(--border-faint);
+    }
+
+    .stat-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 28px;
+      background: var(--card-bg);
+      border-left: 3px solid var(--lime);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat-card:first-child { border-left-width: 3px; }
+
+    .stat-card--glow {
+      box-shadow: 0 0 20px rgba(154, 221, 38, 0.15);
+    }
+
+    .stat-card__label {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 8px;
+    }
+
+    .stat-card__value {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 48px;
+      color: var(--lime);
+      line-height: 1;
+    }
+
+    .stat-card__sub {
+      font-family: var(--font-body);
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    /* ── ROW 3: Main Content ── */
+    #main-content {
+      flex: 1 1 0;
+      display: flex;
+      min-height: 0;
+      gap: 1px;
+      background: var(--border-faint);
+    }
+
+    #left-panel {
+      flex: 0 0 60%;
+      display: flex;
+      flex-direction: column;
+      background: var(--card-bg);
+      min-height: 0;
+    }
+
+    #right-panel {
+      flex: 0 0 40%;
+      display: flex;
+      flex-direction: column;
+      background: var(--card-bg);
+      min-height: 0;
+    }
+
+    .panel-header {
+      flex: 0 0 auto;
+      padding: 14px 24px 12px;
+      border-bottom: 1px solid var(--border-faint);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .panel-header__title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--lime);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .panel-header__dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--lime);
+      opacity: 0.5;
+    }
+
+    .panel-body {
+      flex: 1 1 0;
+      overflow-y: auto;
+      padding: 20px 24px;
+    }
+
+    .placeholder-area {
+      height: 100%;
+      min-height: 120px;
+      border: 1px dashed rgba(154, 221, 38, 0.12);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .placeholder-area__text {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: rgba(154, 221, 38, 0.2);
+      letter-spacing: 0.1em;
+    }
+
+    /* ── ROW 4: Footer Bar ── */
+    #footer {
+      flex: 0 0 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      background: var(--card-bg);
+      border-top: 1px solid var(--border-dim);
+    }
+
+    #footer-left {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    #footer-right {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    #footer-version {
+      color: rgba(154, 221, 38, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+
+    <!-- ROW 1: Header Bar -->
+    <header id="header">
+      <div id="header-left">
+        <span id="logo">IE.AI</span>
+        <span id="logo-sub">Command Center</span>
+      </div>
+      <div id="header-center">Manus Orchestration Platform</div>
+      <div id="header-right">
+        <span id="version-badge">v8.20.0</span>
+        <span id="live-clock">--:--:--</span>
+      </div>
+    </header>
+
+    <!-- ROW 2: Stat Cards -->
+    <section id="stat-row">
+      <div class="stat-card">
+        <div class="stat-card__label">Tasks Today</div>
+        <div class="stat-card__value">—</div>
+        <div class="stat-card__sub">No data yet</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">Success Rate</div>
+        <div class="stat-card__value">—</div>
+        <div class="stat-card__sub">No data yet</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">Avg Duration</div>
+        <div class="stat-card__value">—</div>
+        <div class="stat-card__sub">No data yet</div>
+      </div>
+      <div class="stat-card stat-card--glow">
+        <div class="stat-card__label">Credits Saved</div>
+        <div class="stat-card__value">—</div>
+        <div class="stat-card__sub">No data yet</div>
+      </div>
+    </section>
+
+    <!-- ROW 3: Main Content -->
+    <main id="main-content">
+      <div id="left-panel">
+        <div class="panel-header">
+          <span class="panel-header__dot"></span>
+          <span class="panel-header__title">Orchestration Flow</span>
+        </div>
+        <div class="panel-body">
+          <div class="placeholder-area">
+            <span class="placeholder-area__text">AWAITING TASK DATA</span>
+          </div>
+        </div>
+      </div>
+      <div id="right-panel">
+        <div class="panel-header">
+          <span class="panel-header__dot"></span>
+          <span class="panel-header__title">Task Feed</span>
+        </div>
+        <div class="panel-body">
+          <div class="placeholder-area">
+            <span class="placeholder-area__text">AWAITING TASK DATA</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ROW 4: Footer Bar -->
+    <footer id="footer">
+      <span id="footer-left">IE.AI Manus Platform</span>
+      <div id="footer-right">
+        <span id="footer-version">v8.20.0</span>
+        <span id="footer-uptime">uptime —</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <script>
+    // Live clock only — no data fetching
+    function tick() {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      document.getElementById('live-clock').textContent =
+        `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    }
+    tick();
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>
