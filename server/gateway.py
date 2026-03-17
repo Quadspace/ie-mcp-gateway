@@ -16,6 +16,7 @@ Key improvements over v7:
   - File read/write tools for direct filesystem access.
 """
 import os
+import re
 import json
 import time
 import uuid
@@ -42,7 +43,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.9.1"
+VERSION = "8.10.0"
+
+# ─── ANSI escape code stripper ────────────────────────────────────────────────
+_ANSI_RE = re.compile(r'\x1b(?:[@-Z\\-_]|\[[0-9;]*[ -/]*[@-~])')
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -569,6 +573,76 @@ async def _build_context_prompt(cwd: str, task: str) -> str:
     return enriched
 
 
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from a string."""
+    return _ANSI_RE.sub("", text)
+
+
+async def _run_claude_sync(task_id: str, cmd: list, cwd: str, env: dict,
+                           tier: str, task: str, timeout: int) -> dict:
+    """
+    Run Claude Code synchronously and return a result dict.
+    Mirrors _run_claude_code_background but returns instead of just logging.
+    """
+    start = time.time()
+    try:
+        # Auto git pull — same as async version
+        git_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", cwd, "pull",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
+        )
+        git_stdout, git_stderr = await asyncio.wait_for(git_proc.communicate(), timeout=30)
+        git_out = git_stdout.decode("utf-8", errors="replace").strip()
+        git_err = git_stderr.decode("utf-8", errors="replace").strip()
+        git_summary = git_out or git_err or "git pull: no output"
+        logger.info(f"[{task_id}] git pull: {git_summary[:120]}")
+        if git_proc.returncode != 0:
+            duration_ms = int((time.time() - start) * 1000)
+            msg = f"git pull failed (exit {git_proc.returncode}): {git_summary}"
+            log_task(task_id, "execute_code_task_sync", tier, tier, task, msg, duration_ms, "error", msg)
+            return {"task_id": task_id, "status": "error", "output": msg,
+                    "duration_ms": duration_ms, "exit_code": git_proc.returncode}
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
+            cwd=cwd,
+            env=env,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            duration_ms = int((time.time() - start) * 1000)
+            msg = f"Task timed out after {timeout}s."
+            log_task(task_id, "execute_code_task_sync", tier, tier, task, msg, duration_ms, "timeout", msg)
+            return {"task_id": task_id, "status": "error", "output": msg,
+                    "duration_ms": duration_ms, "exit_code": -1}
+
+        duration_ms = int((time.time() - start) * 1000)
+        out = _strip_ansi(stdout.decode("utf-8", errors="replace").strip())
+        err = _strip_ansi(stderr.decode("utf-8", errors="replace").strip())
+        output = out or err or f"Task completed with exit code {proc.returncode} (no output captured)"
+        status = "success" if proc.returncode == 0 else "error"
+        log_task(task_id, "execute_code_task_sync", tier, tier, task, output, duration_ms, status)
+        logger.info(f"[{task_id}] Sync completed in {duration_ms}ms, exit={proc.returncode}")
+        return {"task_id": task_id, "status": status, "output": output,
+                "duration_ms": duration_ms, "exit_code": proc.returncode}
+
+    except Exception as e:
+        duration_ms = int((time.time() - start) * 1000)
+        msg = f"Error running Claude Code: {e}"
+        log_task(task_id, "execute_code_task_sync", tier, tier, task, msg, duration_ms, "error", str(e))
+        logger.error(f"[{task_id}] Exception: {e}")
+        return {"task_id": task_id, "status": "error", "output": msg,
+                "duration_ms": duration_ms, "exit_code": -1}
+
+
 # ─── Tool 5: execute_code_task ───────────────────────────────────────────────
 @mcp.tool()
 async def execute_code_task(
@@ -660,6 +734,77 @@ async def execute_code_task(
         "tier": tier,
         "timeout_seconds": timeout,
     })
+
+
+# ─── Tool 6: execute_code_task_sync ─────────────────────────────────────────
+@mcp.tool()
+async def execute_code_task_sync(
+    task: str,
+    working_dir: str = "",
+    tier: str = "standard",
+) -> str:
+    """
+    Execute a coding task using Claude Code CLI and wait for the result.
+    SYNCHRONOUS: blocks until Claude Code finishes (up to 10 minutes) and returns
+    the full output in one call. No polling required.
+
+    Use this when you need the result immediately in the same call.
+    For long-running tasks where you can poll later, use execute_code_task instead.
+
+    Args:
+        task: The coding task description
+        working_dir: Project directory path (defaults to PROJECT_PATH)
+        tier: "standard" (Sonnet) or "power" (Opus)
+
+    Returns:
+        JSON string with task_id, status, output, duration_ms, exit_code.
+    """
+    if not Path(CLAUDE_BIN).exists():
+        return json.dumps({"task_id": None, "status": "error",
+                           "output": f"Claude CLI not found at {CLAUDE_BIN}.",
+                           "duration_ms": 0, "exit_code": -1})
+
+    if not ANTHROPIC_API_KEY:
+        return json.dumps({"task_id": None, "status": "error",
+                           "output": "ANTHROPIC_API_KEY not configured.",
+                           "duration_ms": 0, "exit_code": -1})
+
+    task_id = uuid.uuid4().hex[:8]
+    cwd = working_dir or PROJECT_PATH
+    timeout = 600  # hard 10-minute limit
+
+    logger.info(f"[{task_id}] execute_code_task_sync: tier={tier}, cwd={cwd}")
+    logger.info(f"[{task_id}] Task preview: {task[:150]}")
+
+    log_task(task_id, "execute_code_task_sync", tier, tier, task, None, 0, "pending")
+
+    env = os.environ.copy()
+    real_key = ENV_VARS.get("ANTHROPIC_API_KEY", "") or ENV_VARS.get("ANTHROPIC_AUTH_TOKEN", "")
+    env["ANTHROPIC_API_KEY"] = real_key
+    env.pop("ANTHROPIC_BASE_URL", None)
+    env.pop("ANTHROPIC_AUTH_TOKEN", None)
+    env.pop("OPENROUTER_API_KEY", None)
+
+    clone_status = await _auto_clone_if_missing(cwd)
+    if clone_status.startswith("ERROR"):
+        log_task(task_id, "execute_code_task_sync", tier, tier, task, clone_status, 0, "error")
+        return json.dumps({"task_id": task_id, "status": "error", "output": clone_status,
+                           "duration_ms": 0, "exit_code": -1})
+
+    enriched_task = await _build_context_prompt(cwd, task)
+
+    cmd = [
+        "script", "-q", "/dev/null",
+        CLAUDE_BIN,
+        "-p", enriched_task,
+        "--output-format", "text",
+        "--dangerously-skip-permissions",
+        "--max-turns", "10",
+        "--mcp-config", str(EMPTY_MCP_CFG),
+    ]
+
+    result = await _run_claude_sync(task_id, cmd, cwd, env, tier, task, timeout)
+    return json.dumps(result)
 
 
 # ─── HTTP API Endpoints ───────────────────────────────────────────────────────
@@ -780,6 +925,70 @@ async def api_projects(request: Request) -> Response:
             "has_claude_md": (entry / "CLAUDE.md").is_file(),
         })
     return JSONResponse({"projects": projects, "count": len(projects)})
+
+@mcp.custom_route("/api/execute_sync", methods=["POST"])
+async def api_execute_sync(request: Request) -> Response:
+    """
+    Synchronous Claude Code execution endpoint — waits for result, returns full output.
+    Protected by gateway token. Body: {task, working_dir?, tier?}
+    """
+    if not _check_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    body = await request.json()
+    task = body.get("task", "").strip()
+    working_dir = body.get("working_dir", "").strip()
+    tier = body.get("tier", "standard")
+
+    if not task:
+        return JSONResponse({"error": "task is required"}, status_code=400)
+
+    if not Path(CLAUDE_BIN).exists():
+        return JSONResponse({"task_id": None, "status": "error",
+                             "output": f"Claude CLI not found at {CLAUDE_BIN}.",
+                             "duration_ms": 0, "exit_code": -1}, status_code=500)
+
+    if not ANTHROPIC_API_KEY:
+        return JSONResponse({"task_id": None, "status": "error",
+                             "output": "ANTHROPIC_API_KEY not configured.",
+                             "duration_ms": 0, "exit_code": -1}, status_code=500)
+
+    task_id = uuid.uuid4().hex[:8]
+    cwd = working_dir or PROJECT_PATH
+    timeout = 600
+
+    logger.info(f"[{task_id}] /api/execute_sync: tier={tier}, cwd={cwd}")
+    log_task(task_id, "execute_code_task_sync", tier, tier, task, None, 0, "pending")
+
+    env = os.environ.copy()
+    real_key = ENV_VARS.get("ANTHROPIC_API_KEY", "") or ENV_VARS.get("ANTHROPIC_AUTH_TOKEN", "")
+    env["ANTHROPIC_API_KEY"] = real_key
+    env.pop("ANTHROPIC_BASE_URL", None)
+    env.pop("ANTHROPIC_AUTH_TOKEN", None)
+    env.pop("OPENROUTER_API_KEY", None)
+
+    clone_status = await _auto_clone_if_missing(cwd)
+    if clone_status.startswith("ERROR"):
+        log_task(task_id, "execute_code_task_sync", tier, tier, task, clone_status, 0, "error")
+        return JSONResponse({"task_id": task_id, "status": "error", "output": clone_status,
+                             "duration_ms": 0, "exit_code": -1}, status_code=500)
+
+    enriched_task = await _build_context_prompt(cwd, task)
+
+    cmd = [
+        "script", "-q", "/dev/null",
+        CLAUDE_BIN,
+        "-p", enriched_task,
+        "--output-format", "text",
+        "--dangerously-skip-permissions",
+        "--max-turns", "10",
+        "--mcp-config", str(EMPTY_MCP_CFG),
+    ]
+
+    result = await _run_claude_sync(task_id, cmd, cwd, env, tier, task, timeout)
+    status_code = 200 if result["status"] == "success" else 500
+    return JSONResponse(result, status_code=status_code)
+
 
 @mcp.custom_route("/api/config", methods=["GET"])
 async def api_config(request: Request) -> Response:
