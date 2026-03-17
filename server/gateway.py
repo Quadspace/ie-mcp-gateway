@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.5.3"
+VERSION = "8.5.4"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -48,14 +48,22 @@ CONFIG_DIR = HOME / ".config" / "ie-mcp"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 ENV_FILE = CONFIG_DIR / ".env"
 
+# Load .env file — force-override any empty strings set by ecosystem.config.js.
+# PM2 sets ANTHROPIC_API_KEY="" intentionally for OpenRouter routing, but we
+# need the real sk-ant-api03-... key from .env for Claude Code CLI subprocesses.
+ENV_VARS = {}
 if ENV_FILE.exists():
     for line in ENV_FILE.read_text().splitlines():
         line = line.strip()
         if "=" in line and not line.startswith("#"):
             k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+            k, v = k.strip(), v.strip()
+            ENV_VARS[k] = v
+            # Force-set: override empty strings from ecosystem.config.js
+            if not os.environ.get(k):  # only override if not set or empty
+                os.environ[k] = v
 
-ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+ANTHROPIC_API_KEY  = ENV_VARS.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "")
 GATEWAY_TOKEN      = os.environ.get("GATEWAY_TOKEN", "ie-gateway-mike-2026")
 PROJECT_PATH       = os.environ.get("PROJECT_PATH", str(HOME / "Documents" / "Dino_One_MCP"))
