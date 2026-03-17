@@ -48,7 +48,7 @@ TASK_STREAMS: dict[str, asyncio.Queue] = {}
 TASK_PROCESSES: dict[str, asyncio.subprocess.Process] = {}
 
 # Orchestrator-controlled gateway — Manus has full kill/diff/stream control
-VERSION = "8.14.1"
+VERSION = "8.15.0"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
 _ANSI_RE = re.compile(
@@ -432,10 +432,11 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
                                        tier: str, task: str, timeout: int):
     """Runs Claude Code in the background and stores result in DB when done."""
     start = time.time()
+    stream_q: asyncio.Queue = asyncio.Queue()
+    TASK_STREAMS[task_id] = stream_q
+    all_lines: list[str] = []
     try:
-        # Task 1.1: Auto git pull — always work on the latest committed code.
-        # If the pull fails (e.g. merge conflict, no remote), the task errors
-        # immediately with the git message so we never run Claude Code on stale code.
+        # Auto git pull before running
         git_proc = await asyncio.create_subprocess_exec(
             "git", "-C", cwd, "pull",
             stdout=asyncio.subprocess.PIPE,
@@ -443,75 +444,73 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
             stdin=asyncio.subprocess.DEVNULL,
         )
         git_stdout, git_stderr = await asyncio.wait_for(git_proc.communicate(), timeout=30)
-        git_out = git_stdout.decode("utf-8", errors="replace").strip()
-        git_err = git_stderr.decode("utf-8", errors="replace").strip()
+        git_out = (git_stdout or b"").decode("utf-8", errors="replace").strip()
+        git_err = (git_stderr or b"").decode("utf-8", errors="replace").strip()
         git_summary = git_out or git_err or "git pull: no output"
         logger.info(f"[{task_id}] git pull: {git_summary[:120]}")
         if git_proc.returncode != 0:
             duration_ms = int((time.time() - start) * 1000)
             msg = f"git pull failed (exit {git_proc.returncode}): {git_summary}"
             log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "error", msg)
-            logger.error(f"[{task_id}] {msg}")
+            await stream_q.put("[ERROR] " + msg)
+            await stream_q.put("[DONE]")
             return
-
-        # Create streaming queue so /api/stream/{task_id} can watch live output
-        stream_q: asyncio.Queue = asyncio.Queue()
-        TASK_STREAMS[task_id] = stream_q
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+            stderr=asyncio.subprocess.STDOUT,   # merge stderr into stdout
             stdin=asyncio.subprocess.DEVNULL,
             cwd=cwd,
             env=env,
         )
         TASK_PROCESSES[task_id] = proc
 
-        lines: list[str] = []
-        deadline = time.time() + timeout
+        # Read stdout line by line and push to SSE queue in real time
         try:
-            while True:
-                if time.time() > deadline:
-                    proc.kill()
-                    await proc.wait()
-                    duration_ms = int((time.time() - start) * 1000)
-                    msg = f"Task timed out after {timeout}s."
-                    log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "timeout", msg)
-                    logger.info(f"[{task_id}] Timed out after {timeout}s")
-                    await stream_q.put(None)
-                    TASK_STREAMS.pop(task_id, None)
-                    TASK_PROCESSES.pop(task_id, None)
-                    return
-                try:
-                    raw = await asyncio.wait_for(proc.stdout.readline(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    if proc.returncode is not None:
+            async def _read_lines():
+                assert proc.stdout is not None
+                while True:
+                    try:
+                        raw = await asyncio.wait_for(proc.stdout.readline(), timeout=timeout)
+                    except asyncio.TimeoutError:
                         break
-                    continue
-                if not raw:
-                    break
-                line = _strip_ansi(raw.decode("utf-8", errors="replace").rstrip())
-                if line:
-                    lines.append(line)
-                    await stream_q.put(line)
-        finally:
+                    if not raw:
+                        break
+                    line = _strip_ansi(raw.decode("utf-8", errors="replace").rstrip())
+                    if line:
+                        all_lines.append(line)
+                        await stream_q.put(line)
+
+            await asyncio.wait_for(_read_lines(), timeout=timeout)
             await proc.wait()
-            await stream_q.put(None)
-            TASK_STREAMS.pop(task_id, None)
-            TASK_PROCESSES.pop(task_id, None)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            duration_ms = int((time.time() - start) * 1000)
+            msg = f"Task timed out after {timeout}s."
+            log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "timeout", msg)
+            await stream_q.put("[ERROR] " + msg)
+            await stream_q.put("[DONE]")
+            return
 
         duration_ms = int((time.time() - start) * 1000)
-        output = "\n".join(lines) or f"Task completed with exit code {proc.returncode} (no output captured)"
+        output = "\n".join(all_lines) or f"Task completed with exit code {proc.returncode} (no output)"
         status = "success" if proc.returncode == 0 else "error"
         log_task(task_id, "execute_code_task", tier, tier, task, output, duration_ms, status)
         logger.info(f"[{task_id}] Completed in {duration_ms}ms, exit={proc.returncode}")
+        await stream_q.put("[DONE]")
 
     except Exception as e:
         duration_ms = int((time.time() - start) * 1000)
         msg = f"Error running Claude Code: {e}"
         log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "error", str(e))
         logger.error(f"[{task_id}] Exception: {e}")
+        await stream_q.put("[ERROR] " + msg)
+        await stream_q.put("[DONE]")
+    finally:
+        TASK_STREAMS.pop(task_id, None)
+        TASK_PROCESSES.pop(task_id, None)
 
 
 # ─── Context Injection Helper ───────────────────────────────────────────────
