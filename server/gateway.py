@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-IE.AI MCP Gateway v8.0
+IE.AI MCP Gateway v8.5
 ======================
 A fast, reliable MCP tool server for the Mac Mini.
 Manus is the AI orchestrator. This gateway is the hands.
@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.4.0"
+VERSION = "8.5.0"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -364,6 +364,7 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,  # Fix: prevent stdin pipe hang
             cwd=cwd,
             env=env,
         )
@@ -440,7 +441,12 @@ async def execute_code_task(
     env.pop("ANTHROPIC_BASE_URL", None)
     env.pop("OPENROUTER_API_KEY", None)
 
+    # Fix: wrap with 'script -q /dev/null' to create a pseudo-TTY on macOS.
+    # Claude Code CLI hangs without a TTY when spawned from a non-interactive
+    # subprocess (e.g. a background service). This is a documented macOS bug.
+    # See: https://github.com/anthropics/claude-code/issues/9026
     cmd = [
+        "script", "-q", "/dev/null",
         CLAUDE_BIN,
         "-p", task,
         "--output-format", "text",
