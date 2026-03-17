@@ -47,7 +47,7 @@ logger = logging.getLogger("ie-mcp-gateway")
 TASK_STREAMS: dict[str, asyncio.Queue] = {}
 TASK_PROCESSES: dict[str, asyncio.subprocess.Process] = {}
 
-VERSION = "8.13.0"
+VERSION = "8.14.0"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
 _ANSI_RE = re.compile(
@@ -970,6 +970,42 @@ async def api_projects(request: Request) -> Response:
             "has_claude_md": (entry / "CLAUDE.md").is_file(),
         })
     return JSONResponse({"projects": projects, "count": len(projects)})
+
+@mcp.custom_route("/api/diff", methods=["GET"])
+async def api_diff(request: Request) -> Response:
+    """
+    Returns the current git diff for a working directory.
+    Query param: ?path=/absolute/path/to/repo
+    Lets the orchestrator review changes before they are committed.
+    """
+    path = request.query_params.get("path", "")
+    if not path:
+        return JSONResponse({"error": "path query param required"}, status_code=400)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", path, "diff", "--stat",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+        stat = stdout.decode("utf-8", errors="replace").strip()
+
+        proc2 = await asyncio.create_subprocess_exec(
+            "git", "-C", path, "diff",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout2, _ = await asyncio.wait_for(proc2.communicate(), timeout=10)
+        full_diff = stdout2.decode("utf-8", errors="replace").strip()
+
+        return JSONResponse({
+            "path": path,
+            "stat": stat,
+            "diff": full_diff,
+            "has_changes": bool(stat),
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @mcp.custom_route("/api/tasks/{task_id}/kill", methods=["POST"])
 async def api_kill_task(request: Request) -> Response:
