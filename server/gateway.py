@@ -125,9 +125,11 @@ def init_db():
     conn.commit()
     # Migrate: add columns that may be missing from older schema versions
     for col, definition in [
-        ("tool",  "TEXT NOT NULL DEFAULT 'unknown'"),
-        ("tier",  "TEXT"),
-        ("model", "TEXT"),
+        ("tool",                 "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("tier",                 "TEXT"),
+        ("model",                "TEXT"),
+        ("manus_credits_before", "INTEGER DEFAULT NULL"),
+        ("manus_credits_after",  "INTEGER DEFAULT NULL"),
     ]:
         try:
             conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} {definition}")
@@ -254,13 +256,15 @@ class _WSManager:
 ws_manager = _WSManager()
 
 
-def log_task(task_id, tool, tier, model, prompt, output, duration_ms, status, error=None):
+def log_task(task_id, tool, tier, model, prompt, output, duration_ms, status, error=None,
+             manus_credits_before=None, manus_credits_after=None):
     ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
     conn.execute(
         """INSERT INTO tasks
-           (timestamp, task_id, tool, tier, model, prompt_preview, output, duration_ms, status, error_message)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (timestamp, task_id, tool, tier, model, prompt_preview, output, duration_ms, status, error_message,
+            manus_credits_before, manus_credits_after)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             ts,
             task_id,
@@ -272,6 +276,8 @@ def log_task(task_id, tool, tier, model, prompt, output, duration_ms, status, er
             duration_ms,
             status,
             error,
+            manus_credits_before,
+            manus_credits_after,
         ),
     )
     conn.commit()
@@ -977,6 +983,41 @@ async def api_tasks(request: Request) -> Response:
     ).fetchall()
     conn.close()
     return JSONResponse([dict(r) for r in rows])
+
+
+@mcp.custom_route("/api/credits/log", methods=["POST"])
+async def api_credits_log(request: Request) -> Response:
+    """Log Manus credit balance before/after a task for ROI tracking.
+    Body: { task_id?: str, credits_before?: int, credits_after?: int }
+    If task_id is omitted, updates the most recent task.
+    """
+    if not _check_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    credits_before = body.get("credits_before")
+    credits_after  = body.get("credits_after")
+    task_id        = body.get("task_id")
+
+    if credits_before is None and credits_after is None:
+        return JSONResponse({"error": "credits_before or credits_after required"}, status_code=400)
+
+    conn = get_db()
+    if task_id:
+        conn.execute(
+            "UPDATE tasks SET manus_credits_before=COALESCE(?,manus_credits_before), "
+            "manus_credits_after=COALESCE(?,manus_credits_after) WHERE task_id=?",
+            (credits_before, credits_after, task_id)
+        )
+    else:
+        conn.execute(
+            "UPDATE tasks SET manus_credits_before=COALESCE(?,manus_credits_before), "
+            "manus_credits_after=COALESCE(?,manus_credits_after) WHERE id=(SELECT MAX(id) FROM tasks)",
+            (credits_before, credits_after)
+        )
+    conn.commit()
+    conn.close()
+    used = (credits_before - credits_after) if (credits_before is not None and credits_after is not None) else None
+    return JSONResponse({"ok": True, "credits_used": used})
 
 @mcp.custom_route("/api/shell", methods=["POST"])
 async def api_shell(request: Request) -> Response:

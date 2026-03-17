@@ -643,21 +643,21 @@
         </div>
       </div>
 
-      <!-- Credits Saved -->
-      <div class="stat-card stat-card--glow" id="card-savings" title="Click for ROI breakdown">
+      <!-- Manus Credits Used -->
+      <div class="stat-card stat-card--glow" id="card-credits">
         <div class="stat-gauge">
           <svg viewBox="0 0 70 70" width="70" height="70">
             <circle cx="35" cy="35" r="28" fill="none" stroke="rgba(154,221,38,0.08)" stroke-width="5"/>
-            <circle id="gauge-savings-arc" cx="35" cy="35" r="28" fill="none" stroke="#9ADD26" stroke-width="5"
-              stroke-linecap="round" stroke-dasharray="175.9" stroke-dashoffset="0"
+            <circle id="gauge-credits-arc" cx="35" cy="35" r="28" fill="none" stroke="#9ADD26" stroke-width="5"
+              stroke-linecap="round" stroke-dasharray="175.9" stroke-dashoffset="175.9"
               transform="rotate(-90 35 35)" style="transition: stroke-dashoffset 1.2s ease;"/>
           </svg>
-          <div class="stat-gauge__text">💰</div>
+          <div class="stat-gauge__text" id="gauge-credits-pct">—</div>
         </div>
         <div class="stat-info">
-          <div class="stat-label">Credits Saved</div>
-          <div class="stat-value stat-value--glow" id="val-savings">—</div>
-          <div class="stat-sub" id="sub-savings">Loading…</div>
+          <div class="stat-label">Manus Credits Used</div>
+          <div class="stat-value stat-value--glow" id="val-credits">—</div>
+          <div class="stat-sub" id="sub-credits">No data yet</div>
         </div>
       </div>
     </section>
@@ -752,15 +752,44 @@
       </div>
     </main>
 
-    <!-- ROI CHART -->
+    <!-- CREDIT TRACKER + ROI CHART -->
     <section id="roi-panel">
-      <div class="panel-header">
-        <div class="panel-header__dot"></div>
-        <span class="panel-header__title">Credit Savings — 30 Day ROI</span>
-        <span class="panel-header__badge" id="roi-total-badge">Loading…</span>
-      </div>
-      <div id="roi-chart-wrap">
-        <canvas id="roi-chart"></canvas>
+      <div style="display:grid;grid-template-columns:1fr 280px;gap:20px;align-items:start;">
+        <div>
+          <div class="panel-header">
+            <div class="panel-header__dot"></div>
+            <span class="panel-header__title">Manus Credits — 30 Day Usage</span>
+            <span class="panel-header__badge" id="roi-total-badge">No data yet</span>
+          </div>
+          <div id="roi-chart-wrap">
+            <canvas id="roi-chart"></canvas>
+          </div>
+        </div>
+        <!-- Credit Logger -->
+        <div id="credit-logger">
+          <div style="font-family:var(--font-body);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px;">Log Credits for Last Task</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <label style="font-family:var(--font-mono);font-size:10px;color:var(--muted);width:50px;">Before</label>
+              <input id="input-before" type="number" placeholder="e.g. 14000"
+                style="flex:1;background:#1A1A1A;border:1px solid var(--border);border-radius:3px;padding:5px 8px;
+                       font-family:var(--font-mono);font-size:11px;color:var(--text);outline:none;"/>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <label style="font-family:var(--font-mono);font-size:10px;color:var(--muted);width:50px;">After</label>
+              <input id="input-after" type="number" placeholder="e.g. 13850"
+                style="flex:1;background:#1A1A1A;border:1px solid var(--border);border-radius:3px;padding:5px 8px;
+                       font-family:var(--font-mono);font-size:11px;color:var(--text);outline:none;"/>
+            </div>
+            <button id="btn-log-credits" onclick="logCredits()"
+              style="background:rgba(154,221,38,0.1);border:1px solid var(--border-mid);border-radius:3px;
+                     padding:6px 12px;font-family:var(--font-display);font-size:11px;font-weight:700;
+                     color:var(--lime);letter-spacing:0.1em;cursor:pointer;text-transform:uppercase;">
+              LOG CREDITS
+            </button>
+            <div id="credit-log-status" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);min-height:16px;"></div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -910,12 +939,8 @@
         const durPct = Math.min(100, (avgDur / 180) * 100);
         setGauge('gauge-dur-arc', durPct);
 
-        // Credits Saved — each task via Claude Code saves ~95% vs Manus direct
-        // Manus direct estimate: ~20 credits/task. Claude Code: ~1 credit/task.
-        // Net savings per task: ~19 credits
-        const savedEst = Math.round(success * 19);
-        document.getElementById('val-savings').textContent = `~${savedEst}`;
-        document.getElementById('sub-savings').textContent = `est. Manus credits saved`;
+        // Real credits used (from logged before/after data)
+        updateCreditsCard(tasks);
 
         // Footer
         document.getElementById('footer-total').textContent = `Total: ${total} tasks`;
@@ -1103,7 +1128,80 @@
       }
     }
 
-    // ── ROI Chart ─────────────────────────────────────────────────────────
+    // ── Real credits card update ───────────────────────────────────────────────
+    function updateCreditsCard(tasks) {
+      const logged = tasks.filter(t =>
+        t.manus_credits_before != null && t.manus_credits_after != null
+      );
+      if (!logged.length) {
+        document.getElementById('val-credits').textContent = '—';
+        document.getElementById('sub-credits').textContent = 'Log credits below to track';
+        document.getElementById('gauge-credits-pct').textContent = '—';
+        return;
+      }
+      const totalUsed = logged.reduce((s, t) => s + (t.manus_credits_before - t.manus_credits_after), 0);
+      const avgUsed = Math.round(totalUsed / logged.length);
+      const latestBefore = logged[0].manus_credits_before;
+      const latestAfter  = logged[0].manus_credits_after;
+      const lastUsed = latestBefore - latestAfter;
+
+      document.getElementById('val-credits').textContent = totalUsed.toLocaleString();
+      document.getElementById('sub-credits').textContent = `avg ${avgUsed}/task · ${logged.length} tracked`;
+      document.getElementById('gauge-credits-pct').textContent = lastUsed;
+      // Gauge: fill proportional to avg vs 150 (Manus baseline)
+      const pct = Math.min(100, (avgUsed / 150) * 100);
+      const color = avgUsed <= 50 ? '#9ADD26' : avgUsed <= 100 ? '#F59E0B' : '#FF3C00';
+      setGauge('gauge-credits-arc', pct, color);
+    }
+
+    // ── Log credits from dashboard UI ──────────────────────────────────────
+    async function logCredits() {
+      const before = parseInt(document.getElementById('input-before').value);
+      const after  = parseInt(document.getElementById('input-after').value);
+      const status = document.getElementById('credit-log-status');
+
+      if (isNaN(before) || isNaN(after)) {
+        status.textContent = 'Enter both before and after values.';
+        status.style.color = '#FF3C00';
+        return;
+      }
+      if (after > before) {
+        status.textContent = 'After must be ≤ before.';
+        status.style.color = '#FF3C00';
+        return;
+      }
+
+      status.textContent = 'Saving…';
+      status.style.color = 'var(--muted)';
+
+      try {
+        const r = await fetch(`${BASE}/api/credits/log`, {
+          method: 'POST',
+          headers: { ...HEADERS, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credits_before: before, credits_after: after })
+        });
+        const d = await r.json();
+        if (d.ok) {
+          const used = d.credits_used;
+          status.textContent = `✓ Logged: ${used} credits used this task`;
+          status.style.color = '#9ADD26';
+          document.getElementById('input-before').value = '';
+          document.getElementById('input-after').value = '';
+          // Refresh data
+          await loadTasks();
+          await loadSummary();
+          await loadROIChart();
+        } else {
+          status.textContent = d.error || 'Error logging credits';
+          status.style.color = '#FF3C00';
+        }
+      } catch(e) {
+        status.textContent = 'Request failed: ' + e.message;
+        status.style.color = '#FF3C00';
+      }
+    }
+
+    // ── ROI Chart (real credit usage by day) ──────────────────────────────
     let roiChart = null;
 
     async function loadROIChart() {
@@ -1111,12 +1209,13 @@
         const r = await fetch(`${BASE}/api/tasks?limit=500`, { headers: HEADERS });
         const tasks = await r.json();
 
-        // Group by date (last 30 days)
+        // Group by date (last 30 days) using REAL credit data only
         const today = new Date();
         const labels = [];
-        const savingsData = [];
+        const creditsUsedData = [];
         const taskCountData = [];
-        let totalSaved = 0;
+        let totalUsed = 0;
+        let hasAnyData = false;
 
         for (let i = 29; i >= 0; i--) {
           const d = new Date(today);
@@ -1127,19 +1226,25 @@
           labels.push(label);
 
           const dayTasks = tasks.filter(t => t.timestamp && t.timestamp.startsWith(dateStr));
-          const daySuccess = dayTasks.filter(t => t.status === 'success').length;
-          const daySaved = daySuccess * 19;
-          savingsData.push(daySaved);
+          const dayLogged = dayTasks.filter(t =>
+            t.manus_credits_before != null && t.manus_credits_after != null
+          );
+          const dayUsed = dayLogged.reduce((s, t) => s + (t.manus_credits_before - t.manus_credits_after), 0);
+          creditsUsedData.push(dayUsed);
           taskCountData.push(dayTasks.length);
-          totalSaved += daySaved;
+          totalUsed += dayUsed;
+          if (dayUsed > 0) hasAnyData = true;
         }
 
         // Update badge
-        document.getElementById('roi-total-badge').textContent =
-          `~${totalSaved.toLocaleString()} credits saved (30d)`;
+        if (hasAnyData) {
+          document.getElementById('roi-total-badge').textContent =
+            `${totalUsed.toLocaleString()} credits used (30d)`;
+        } else {
+          document.getElementById('roi-total-badge').textContent = 'Log credits to see usage';
+        }
 
         const ctx = document.getElementById('roi-chart').getContext('2d');
-
         if (roiChart) roiChart.destroy();
 
         roiChart = new Chart(ctx, {
@@ -1148,12 +1253,12 @@
             labels,
             datasets: [
               {
-                label: 'Credits Saved',
-                data: savingsData,
-                backgroundColor: savingsData.map(v =>
+                label: 'Credits Used',
+                data: creditsUsedData,
+                backgroundColor: creditsUsedData.map(v =>
                   v > 0 ? 'rgba(154,221,38,0.55)' : 'rgba(154,221,38,0.06)'
                 ),
-                borderColor: savingsData.map(v =>
+                borderColor: creditsUsedData.map(v =>
                   v > 0 ? 'rgba(154,221,38,0.9)' : 'rgba(154,221,38,0.15)'
                 ),
                 borderWidth: 1,
@@ -1191,7 +1296,7 @@
                 callbacks: {
                   title: items => items[0].label,
                   label: item => {
-                    if (item.datasetIndex === 0) return `  ~${item.raw} credits saved`;
+                    if (item.datasetIndex === 0) return `  ${item.raw} credits used`;
                     return `  ${item.raw} tasks run`;
                   }
                 }
@@ -1200,12 +1305,7 @@
             scales: {
               x: {
                 grid: { color: 'rgba(154,221,38,0.04)', drawBorder: false },
-                ticks: {
-                  color: '#818287',
-                  font: { family: 'Inter', size: 9 },
-                  maxTicksLimit: 10,
-                  maxRotation: 0,
-                }
+                ticks: { color: '#818287', font: { family: 'Inter', size: 9 }, maxTicksLimit: 10, maxRotation: 0 }
               },
               y: {
                 position: 'left',
@@ -1214,18 +1314,14 @@
                   color: '#818287',
                   font: { family: 'JetBrains Mono', size: 9 },
                   maxTicksLimit: 4,
-                  callback: v => v > 0 ? `~${v}` : '0'
+                  callback: v => v > 0 ? v : '0'
                 },
                 beginAtZero: true,
               },
               y2: {
                 position: 'right',
                 grid: { display: false },
-                ticks: {
-                  color: 'rgba(70,50,218,0.6)',
-                  font: { family: 'JetBrains Mono', size: 9 },
-                  maxTicksLimit: 4,
-                },
+                ticks: { color: 'rgba(70,50,218,0.6)', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 4 },
                 beginAtZero: true,
               }
             }
