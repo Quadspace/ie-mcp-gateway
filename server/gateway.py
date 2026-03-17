@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.5.4"
+VERSION = "8.5.5"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -445,14 +445,13 @@ async def execute_code_task(
     log_task(task_id, "execute_code_task", tier, tier, task, None, 0, "pending")
 
     # Build env for Claude Code subprocess.
-    # Claude Code CLI requires a DIRECT Anthropic API key — it does NOT support
-    # OpenRouter or any proxy via ANTHROPIC_BASE_URL. We must:
-    #   1. Use ANTHROPIC_AUTH_TOKEN (the real sk-ant-api03-... key) as ANTHROPIC_API_KEY
-    #   2. Strip ANTHROPIC_BASE_URL so Claude Code hits api.anthropic.com directly
-    #   3. Strip OPENROUTER_API_KEY to avoid confusion
+    # Claude Code CLI requires a DIRECT Anthropic API key and CANNOT use OpenRouter.
+    # PM2 ecosystem.config.js poisons os.environ with ANTHROPIC_API_KEY="" and
+    # ANTHROPIC_BASE_URL=openrouter. We bypass os.environ entirely by reading
+    # the real key directly from ENV_VARS (parsed from .env file at startup).
     env = os.environ.copy()
-    auth_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
-    env["ANTHROPIC_API_KEY"] = auth_key
+    real_key = ENV_VARS.get("ANTHROPIC_API_KEY", "") or ENV_VARS.get("ANTHROPIC_AUTH_TOKEN", "")
+    env["ANTHROPIC_API_KEY"] = real_key
     env.pop("ANTHROPIC_BASE_URL", None)   # must hit api.anthropic.com directly
     env.pop("ANTHROPIC_AUTH_TOKEN", None) # avoid duplicate auth confusion
     env.pop("OPENROUTER_API_KEY", None)   # not used by Claude Code CLI
