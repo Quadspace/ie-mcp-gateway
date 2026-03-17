@@ -42,7 +42,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.8.0"
+VERSION = "8.9.0"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -75,6 +75,9 @@ CLAUDE_BIN         = os.environ.get("CLAUDE_BIN", str(HOME / ".local" / "bin" / 
 EMPTY_MCP_CFG      = CONFIG_DIR / "empty-mcp.json"
 DB_PATH            = CONFIG_DIR / "gateway.db"
 DASHBOARD_DIR      = Path(__file__).parent.parent / "dashboard"
+GITHUB_PAT         = ENV_VARS.get("GITHUB_PAT", "") or os.environ.get("GITHUB_PAT", "")
+GITHUB_ORG         = os.environ.get("GITHUB_ORG", "Quadspace")  # default org for auto-clone
+DOCS_DIR           = HOME / "Documents"  # where all project repos live
 
 # Anthropic model names
 MODELS = {
@@ -473,6 +476,47 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
 
 
 # ─── Context Injection Helper ───────────────────────────────────────────────
+async def _auto_clone_if_missing(cwd: str) -> str:
+    """
+    If the working_dir doesn't exist on disk, auto-clone the repo from GitHub.
+    Derives the repo name from the last path segment of cwd.
+    Requires GITHUB_PAT and GITHUB_ORG to be set in .env.
+    Returns a status string for logging.
+    """
+    path = Path(cwd)
+    if path.exists():
+        return "exists"  # already cloned, nothing to do
+
+    if not GITHUB_PAT:
+        return f"ERROR: {cwd} does not exist and GITHUB_PAT is not set — cannot auto-clone"
+
+    repo_name = path.name  # e.g. 'brad-wolfe-cfo' from '/Users/.../Documents/brad-wolfe-cfo'
+    clone_url = f"https://{GITHUB_PAT}@github.com/{GITHUB_ORG}/{repo_name}.git"
+    parent_dir = str(path.parent)
+
+    logger.info(f"[auto-clone] {cwd} not found — cloning {GITHUB_ORG}/{repo_name}...")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "clone", clone_url, str(path),
+            cwd=parent_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode == 0:
+            logger.info(f"[auto-clone] Successfully cloned {repo_name}")
+            return f"cloned:{repo_name}"
+        else:
+            err = stderr.decode().strip()
+            logger.error(f"[auto-clone] Failed to clone {repo_name}: {err}")
+            return f"ERROR: git clone failed for {repo_name}: {err[:200]}"
+    except asyncio.TimeoutError:
+        return f"ERROR: git clone timed out for {repo_name}"
+    except Exception as e:
+        return f"ERROR: auto-clone exception: {e}"
+
+
 async def _build_context_prompt(cwd: str, task: str) -> str:
     """
     Task 2.1: Build an enriched prompt by prepending project context to the task.
@@ -577,6 +621,15 @@ async def execute_code_task(
     env.pop("ANTHROPIC_BASE_URL", None)   # must hit api.anthropic.com directly
     env.pop("ANTHROPIC_AUTH_TOKEN", None) # avoid duplicate auth confusion
     env.pop("OPENROUTER_API_KEY", None)   # not used by Claude Code CLI
+
+    # Auto-clone: if working_dir doesn't exist, clone it from GitHub automatically.
+    # This means any new project works on first use — no manual setup required.
+    clone_status = await _auto_clone_if_missing(cwd)
+    if clone_status.startswith("ERROR"):
+        log_task(task_id, "execute_code_task", tier, tier, task, clone_status, 0, "error")
+        return json.dumps({"task_id": task_id, "status": "error", "message": clone_status})
+    if clone_status.startswith("cloned:"):
+        logger.info(f"[{task_id}] Auto-cloned: {clone_status}")
 
     # Task 2.1: Context injection — gather git log + CLAUDE.md and prepend to task
     # so Claude Code never starts cold. Runs async, fails silently if git/file unavailable.
