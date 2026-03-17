@@ -1,768 +1,963 @@
-<!-- v8.10.0 — E1-E5: live feed fix, ANSI strip, projects panel, throughput chart, self-improvement log -->
+<!-- v8.11.0 — Neural Cortex dashboard redesign -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IE.AI — Manus Command Center</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<title>IE.AI — Neural Cortex Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3/dist/chart.min.js"></script>
 <style>
-  :root {
-    --bg:        #070707;
-    --surface:   #0f0f0f;
-    --surface2:  #161616;
-    --surface3:  #1e1e1e;
-    --border:    #242424;
-    --border2:   #2e2e2e;
-    --text:      #f0f0f0;
-    --text2:     #888;
-    --text3:     #555;
-    --accent:    #9ADD26;
-    --accent2:   #7BC01A;
-    --accent3:   #c8f56a;
-    --success:   #22c55e;
-    --error:     #ef4444;
-    --warning:   #f59e0b;
-    --info:      #3b82f6;
-    --radius:    8px;
-    --radius-lg: 12px;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
-  /* Header */
-  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 32px; height: 60px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
-  .header-left { display: flex; align-items: center; gap: 16px; }
-  .logo { display: flex; align-items: center; gap: 10px; }
-  .logo-mark { width: 32px; height: 32px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; color: #000; letter-spacing: -0.5px; }
-  .logo-text { font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
-  .logo-text span { color: var(--accent); }
-  .header-divider { width: 1px; height: 24px; background: var(--border2); }
-  .header-subtitle { font-size: 12px; color: var(--text2); font-weight: 500; }
-  .header-right { display: flex; align-items: center; gap: 20px; }
-  .status-pill { display: flex; align-items: center; gap: 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; font-size: 12px; color: var(--text2); }
-  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); animation: pulse 2s infinite; }
-  .status-dot.offline { background: var(--error); animation: none; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-  .version-tag { font-size: 11px; color: var(--text3); font-family: 'SF Mono', 'Fira Code', monospace; }
-  .refresh-indicator { font-size: 10px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
-  .refresh-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse 3s infinite; }
-  .refresh-dot.ws-live { background: var(--success); animation: pulse 1.5s infinite; }
-  .refresh-dot.ws-offline { background: var(--error); animation: none; }
-  /* Task detail drawer */
-  .drawer-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200; }
-  .drawer-overlay.open { display: block; }
-  .drawer { position: fixed; right: 0; top: 0; bottom: 0; width: min(600px, 95vw); background: var(--surface); border-left: 1px solid var(--border2); z-index: 201; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.2s ease; }
-  .drawer.open { transform: translateX(0); }
-  .drawer-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-  .drawer-title { font-size: 14px; font-weight: 600; color: var(--text); }
-  .drawer-close { background: none; border: 1px solid var(--border2); color: var(--text2); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
-  .drawer-close:hover { border-color: var(--accent); color: var(--accent); }
-  .drawer-body { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
-  .drawer-section { display: flex; flex-direction: column; gap: 6px; }
-  .drawer-label { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; }
-  .drawer-content { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; font-size: 12px; color: var(--text2); font-family: "SF Mono", "Fira Code", monospace; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; line-height: 1.6; }
-  .drawer-meta { display: flex; gap: 12px; flex-wrap: wrap; }
-  .drawer-meta-item { display: flex; flex-direction: column; gap: 3px; }
-  /* Flash new row */
-  @keyframes rowFlash { 0% { background: rgba(154,221,38,0.15); } 100% { background: transparent; } }
-  .row-new { animation: rowFlash 1.5s ease-out; }
-  /* Clickable rows */
-  tbody tr { cursor: pointer; }
-  tbody tr:hover { background: var(--surface2); }
+:root {
+  --bg:       #000000;
+  --surface:  #050505;
+  --surface2: #0a0a0a;
+  --surface3: #0f0f0f;
+  --border:   rgba(0,255,136,0.12);
+  --border2:  rgba(0,255,136,0.2);
+  --green:    #00ff88;
+  --cyan:     #00d4ff;
+  --red:      #ff3355;
+  --yellow:   #ffcc00;
+  --text:     #e0ffe8;
+  --text2:    #7aaa8a;
+  --text3:    #3a5a42;
+  --mono:     'Fira Code', 'SF Mono', 'Courier New', monospace;
+}
 
-  /* Endpoint Banner */
-  .endpoint-banner { background: linear-gradient(135deg, #0a1500 0%, var(--surface2) 100%); border: 1px solid #1a3000; margin: 20px 32px 0; padding: 14px 20px; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-  .endpoint-label { font-size: 10px; color: var(--accent2); text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600; margin-bottom: 4px; }
-  .endpoint-url { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; color: var(--accent); font-weight: 500; }
-  .copy-btn { background: var(--accent); color: #000; border: none; padding: 7px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background 0.15s; letter-spacing: 0.3px; }
-  .copy-btn:hover { background: var(--accent3); }
-  .copy-btn.copied { background: var(--success); color: #fff; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--mono); }
 
-  /* Main */
-  .main { padding: 20px 32px 40px; }
+/* Scanline CRT overlay */
+body::before {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+}
 
-  /* Stats Grid */
-  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; position: relative; overflow: hidden; }
-  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); opacity: 0.3; }
-  .stat-card.highlight::before { opacity: 1; }
-  .stat-label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-bottom: 10px; }
-  .stat-value { font-size: 32px; font-weight: 800; color: var(--accent); line-height: 1; letter-spacing: -1px; }
-  .stat-sub { font-size: 11px; color: var(--text3); margin-top: 6px; }
+/* Scrollbars */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--green); }
 
-  /* Two-col */
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
-  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-  .section-title { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
-  .section-badge { font-size: 10px; color: var(--text3); background: var(--surface2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 10px; }
+/* ── TOP BAR ──────────────────────────────────────────────────── */
+#topbar {
+  height: 40px; background: var(--surface); border-bottom: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; position: relative; z-index: 100; flex-shrink: 0;
+}
+#topbar-left { display: flex; align-items: center; gap: 10px; }
+#main-title {
+  font-size: 13px; font-weight: 700; color: var(--green); letter-spacing: 2px;
+  text-shadow: 0 0 12px var(--green); white-space: nowrap;
+}
+#version-badge {
+  font-size: 9px; color: var(--text3); border: 1px solid var(--border);
+  padding: 1px 6px; letter-spacing: 1px;
+}
+#topbar-nav { display: flex; gap: 2px; position: absolute; left: 50%; transform: translateX(-50%); }
+.nav-tab {
+  font-size: 10px; letter-spacing: 2px; padding: 4px 14px; cursor: pointer;
+  color: var(--text3); border: 1px solid transparent; transition: all 0.15s;
+  text-transform: uppercase;
+}
+.nav-tab:hover { color: var(--green); border-color: var(--border); }
+.nav-tab.active { color: var(--green); border-color: var(--border2); background: rgba(0,255,136,0.05); text-shadow: 0 0 8px var(--green); }
+#topbar-right { display: flex; align-items: center; gap: 14px; font-size: 10px; color: var(--text3); letter-spacing: 1px; }
+#live-clock { color: var(--cyan); font-size: 11px; text-shadow: 0 0 8px var(--cyan); }
+#gw-status { display: flex; align-items: center; gap: 5px; }
+#ngrok-domain { color: var(--text3); font-size: 9px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  /* Tools Panel */
-  .tools-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
-  .tool-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
-  .tool-item:last-child { border-bottom: none; }
-  .tool-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
-  .tool-name { font-size: 13px; font-weight: 600; color: var(--text); font-family: 'SF Mono', 'Fira Code', monospace; }
-  .tool-desc { font-size: 11px; color: var(--text2); margin-top: 1px; }
-  .tool-status { margin-left: auto; font-size: 10px; color: var(--success); background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2); padding: 2px 8px; border-radius: 10px; font-weight: 600; letter-spacing: 0.3px; }
+/* ── MAIN GRID ────────────────────────────────────────────────── */
+#main-grid {
+  display: flex; height: calc(100vh - 40px); overflow: hidden;
+}
 
-  /* System Panel */
-  .system-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
-  .sys-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
-  .sys-row:last-child { border-bottom: none; }
-  .sys-key { color: var(--text2); }
-  .sys-val { color: var(--text); font-weight: 500; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; }
-  .sys-val.ok { color: var(--success); }
-  .sys-val.warn { color: var(--warning); }
-  .sys-val.err { color: var(--error); }
+/* ── LEFT COLUMN ─────────────────────────────────────────────── */
+#left-col {
+  width: 220px; flex-shrink: 0; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow-y: auto; padding: 12px;
+  gap: 12px; background: var(--surface);
+}
 
-  /* Architecture Flow */
-  .arch-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px; }
-  .arch-flow { display: flex; align-items: center; justify-content: center; gap: 0; flex-wrap: wrap; margin-top: 16px; }
-  .arch-node { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--radius); padding: 10px 16px; text-align: center; min-width: 100px; }
-  .arch-node .node-icon { font-size: 18px; margin-bottom: 4px; }
-  .arch-node .node-label { font-size: 11px; font-weight: 700; color: var(--text); }
-  .arch-node .node-sub { font-size: 9px; color: var(--text3); margin-top: 2px; }
-  .arch-node.active { border-color: var(--accent); background: rgba(154,221,38,0.05); }
-  .arch-node.active .node-label { color: var(--accent); }
-  .arch-arrow { color: var(--accent2); font-size: 18px; padding: 0 6px; opacity: 0.7; }
+.panel-label {
+  font-size: 9px; letter-spacing: 2px; color: var(--text3); text-transform: uppercase;
+  margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+}
+.panel-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
-  /* Table */
-  .table-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
-  .table-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-  table { width: 100%; border-collapse: collapse; }
-  th { background: var(--surface2); padding: 10px 16px; text-align: left; font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; border-bottom: 1px solid var(--border); }
-  td { padding: 11px 16px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text2); vertical-align: middle; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: var(--surface2); }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; }
-  .badge-success { background: rgba(34,197,94,0.12); color: var(--success); border: 1px solid rgba(34,197,94,0.2); }
-  .badge-error   { background: rgba(239,68,68,0.12);  color: var(--error);   border: 1px solid rgba(239,68,68,0.2); }
-  .badge-timeout { background: rgba(245,158,11,0.12); color: var(--warning); border: 1px solid rgba(245,158,11,0.2); }
-  .badge-pending { background: rgba(59,130,246,0.12); color: var(--info);    border: 1px solid rgba(59,130,246,0.2); }
-  .tool-tag { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: var(--accent2); background: rgba(154,221,38,0.08); border: 1px solid rgba(154,221,38,0.15); padding: 2px 7px; border-radius: 5px; }
-  .duration { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: var(--text3); }
-  .prompt-preview { color: var(--text2); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .empty-state { text-align: center; padding: 48px 20px; color: var(--text3); }
-  .empty-state .icon { font-size: 32px; margin-bottom: 12px; }
-  .empty-state p { font-size: 13px; }
+.big-metric { margin-bottom: 8px; }
+.big-metric-val {
+  font-size: 28px; font-weight: 700; color: var(--green); line-height: 1;
+  text-shadow: 0 0 20px var(--green); letter-spacing: -1px;
+}
+.big-metric-val.cyan { color: var(--cyan); text-shadow: 0 0 20px var(--cyan); }
+.big-metric-val.yellow { color: var(--yellow); text-shadow: 0 0 20px var(--yellow); }
+.big-metric-val.red { color: var(--red); text-shadow: 0 0 20px var(--red); }
+.big-metric-label { font-size: 8px; letter-spacing: 2px; color: var(--text3); text-transform: uppercase; margin-top: 3px; }
 
-  @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } .two-col { grid-template-columns: 1fr; } }
-  @media (max-width: 700px) { .header { padding: 0 16px; } .main { padding: 12px 16px 32px; } .endpoint-banner { flex-direction: column; align-items: flex-start; margin: 12px 16px 0; } .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; } }
+.vitals-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 5px 0; border-bottom: 1px solid rgba(0,255,136,0.05); font-size: 10px;
+}
+.vitals-row:last-child { border-bottom: none; }
+.vitals-key { color: var(--text3); letter-spacing: 0.5px; }
+.vitals-val { color: var(--text2); font-size: 9px; text-align: right; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vitals-val.ok { color: var(--green); }
+.vitals-val.err { color: var(--red); }
 
-  /* Projects Panel */
-  .projects-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px; }
-  .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; }
-  .project-card { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--radius); padding: 14px; }
-  .project-name { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
-  .project-commit { font-size: 11px; color: var(--text2); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .badge-claude { background: rgba(34,197,94,0.12); color: var(--success); border: 1px solid rgba(34,197,94,0.2); }
-  .badge-no-claude { background: rgba(245,158,11,0.12); color: var(--warning); border: 1px solid rgba(245,158,11,0.2); }
+/* Neural activity bars */
+#neural-bars {
+  display: flex; align-items: flex-end; gap: 3px; height: 48px; margin-top: 8px;
+}
+.n-bar {
+  flex: 1; background: var(--green); opacity: 0.7; border-radius: 1px 1px 0 0;
+  transition: height 0.3s ease;
+  box-shadow: 0 0 6px var(--green);
+  min-height: 4px;
+}
 
-  /* Chart Panel */
-  .chart-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px; }
-  .chart-container { position: relative; height: 180px; margin-top: 14px; }
+/* ── CENTER COLUMN ───────────────────────────────────────────── */
+#center-col {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;
+}
 
-  /* Self-Improvement Log */
-  .self-improve-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px; }
-  .self-improve-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
-  .self-improve-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); }
-  .self-improve-time { font-size: 10px; color: var(--text3); white-space: nowrap; font-family: 'SF Mono', 'Fira Code', monospace; flex-shrink: 0; }
-  .self-improve-prompt { font-size: 12px; color: var(--text2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .self-improve-empty { text-align: center; padding: 24px; color: var(--text3); font-size: 12px; font-style: italic; }
+/* Tabs content */
+.tab-pane { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+.tab-pane.active { display: flex; }
+
+/* Feed panel */
+#feed-panel {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 12px;
+  gap: 10px;
+}
+
+.feed-header {
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.feed-title { font-size: 10px; letter-spacing: 2px; color: var(--green); text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+.feed-sync { font-size: 9px; color: var(--text3); letter-spacing: 1px; }
+
+.feed-table-wrap { flex: 1; overflow-y: auto; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; }
+thead { position: sticky; top: 0; background: var(--surface); z-index: 10; }
+th {
+  padding: 7px 10px; text-align: left; font-size: 8px; letter-spacing: 2px;
+  color: var(--text3); text-transform: uppercase; border-bottom: 1px solid var(--border2); font-weight: 400;
+}
+td { padding: 7px 10px; border-bottom: 1px solid rgba(0,255,136,0.05); font-size: 10px; color: var(--text2); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tbody tr { cursor: pointer; transition: background 0.1s; }
+tbody tr:hover td { background: rgba(0,255,136,0.03); }
+
+.tool-tag { color: var(--cyan); font-size: 9px; letter-spacing: 1px; }
+.preview-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--text3); }
+.dur-cell { font-size: 9px; color: var(--text3); white-space: nowrap; }
+.time-cell { font-size: 9px; color: var(--text3); white-space: nowrap; }
+
+.badge { display: inline-block; padding: 1px 6px; font-size: 8px; letter-spacing: 1px; text-transform: uppercase; border-radius: 2px; font-weight: 600; }
+.badge-success { background: rgba(0,255,136,0.1); color: var(--green); border: 1px solid rgba(0,255,136,0.3); box-shadow: 0 0 6px rgba(0,255,136,0.2); }
+.badge-error   { background: rgba(255,51,85,0.1); color: var(--red); border: 1px solid rgba(255,51,85,0.3); box-shadow: 0 0 6px rgba(255,51,85,0.2); }
+.badge-timeout { background: rgba(255,204,0,0.1); color: var(--yellow); border: 1px solid rgba(255,204,0,0.3); }
+.badge-pending { background: rgba(0,212,255,0.1); color: var(--cyan); border: 1px solid rgba(0,212,255,0.3); animation: pendingPulse 1.5s infinite; }
+
+@keyframes pendingPulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+@keyframes rowFlash { 0%{background:rgba(0,255,136,0.15)} 100%{background:transparent} }
+.row-new td { animation: rowFlash 1.5s ease-out; }
+
+/* Timeline chart */
+#timeline-wrap {
+  flex-shrink: 0; height: 110px; border: 1px solid var(--border); padding: 8px 10px;
+  margin-top: 0;
+}
+.chart-label { font-size: 8px; letter-spacing: 2px; color: var(--text3); text-transform: uppercase; margin-bottom: 4px; }
+.chart-inner { position: relative; height: 76px; }
+
+/* Other tab panes */
+.tab-inner { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+
+.section-block { border: 1px solid var(--border); padding: 12px; background: var(--surface); }
+.section-block-title { font-size: 9px; letter-spacing: 2px; color: var(--green); text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+
+.sys-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid rgba(0,255,136,0.05); font-size: 10px; }
+.sys-row:last-child { border-bottom: none; }
+.sys-key { color: var(--text3); }
+.sys-val { color: var(--text2); font-size: 9px; }
+.sys-val.ok { color: var(--green); }
+.sys-val.err { color: var(--red); }
+
+.tool-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid rgba(0,255,136,0.05); }
+.tool-row:last-child { border-bottom: none; }
+.tool-name { font-size: 10px; color: var(--cyan); flex: 1; }
+.tool-desc { font-size: 9px; color: var(--text3); }
+.tool-status-badge { font-size: 8px; color: var(--green); border: 1px solid rgba(0,255,136,0.3); padding: 1px 6px; letter-spacing: 1px; }
+
+/* ── RIGHT COLUMN ────────────────────────────────────────────── */
+#right-col {
+  width: 280px; flex-shrink: 0; border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden; background: var(--surface);
+}
+
+.right-section { flex: 1; overflow-y: auto; padding: 12px; border-bottom: 1px solid var(--border); min-height: 0; }
+.right-section:last-child { border-bottom: none; }
+
+.project-item { padding: 7px 0; border-bottom: 1px solid rgba(0,255,136,0.05); }
+.project-item:last-child { border-bottom: none; }
+.project-name { font-size: 10px; color: var(--cyan); letter-spacing: 0.5px; }
+.project-commit { font-size: 8px; color: var(--text3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-badges { display: flex; gap: 4px; margin-top: 4px; }
+.badge-armed { background: rgba(0,255,136,0.08); color: var(--green); border: 1px solid rgba(0,255,136,0.2); font-size: 7px; padding: 1px 5px; letter-spacing: 1px; }
+.badge-missing { background: rgba(255,204,0,0.08); color: var(--yellow); border: 1px solid rgba(255,204,0,0.2); font-size: 7px; padding: 1px 5px; letter-spacing: 1px; }
+
+.si-item { padding: 6px 0; border-bottom: 1px solid rgba(0,255,136,0.05); }
+.si-item:last-child { border-bottom: none; }
+.si-time { font-size: 8px; color: var(--text3); }
+.si-prompt { font-size: 9px; color: var(--text2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Sparkline */
+#sparkline-wrap { height: 60px; position: relative; }
+
+/* ── DRAWER ──────────────────────────────────────────────────── */
+#drawer-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; }
+#drawer-overlay.open { display: block; }
+#drawer {
+  position: fixed; right: 0; top: 0; bottom: 0; width: min(560px, 95vw);
+  background: var(--surface); border-left: 1px solid var(--border2); z-index: 201;
+  display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.2s ease;
+}
+#drawer.open { transform: translateX(0); }
+#drawer-header {
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+#drawer-header-title { font-size: 10px; letter-spacing: 2px; color: var(--green); text-transform: uppercase; }
+#drawer-close {
+  background: none; border: 1px solid var(--border); color: var(--text3);
+  padding: 3px 10px; cursor: pointer; font-size: 9px; letter-spacing: 1px; font-family: var(--mono);
+}
+#drawer-close:hover { border-color: var(--green); color: var(--green); }
+#drawer-body { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.d-label { font-size: 8px; letter-spacing: 2px; color: var(--text3); text-transform: uppercase; margin-bottom: 4px; }
+.d-meta { display: flex; gap: 16px; flex-wrap: wrap; }
+.d-meta-item { display: flex; flex-direction: column; gap: 2px; }
+.d-meta-val { font-size: 11px; color: var(--green); }
+.d-content {
+  background: var(--bg); border: 1px solid var(--border); padding: 10px 12px;
+  font-size: 10px; color: var(--text2); white-space: pre-wrap; word-break: break-word;
+  max-height: 260px; overflow-y: auto; line-height: 1.7;
+}
+
+/* ── PULSE DOT ───────────────────────────────────────────────── */
+.pulse { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: dotPulse 1.5s infinite; box-shadow: 0 0 6px var(--green); flex-shrink: 0; }
+.pulse.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.pulse.yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); animation: none; }
+.pulse.cyan { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+.pulse.off { background: var(--text3); box-shadow: none; animation: none; }
+@keyframes dotPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.85)} }
+
+/* ── GLITCH ──────────────────────────────────────────────────── */
+@keyframes glitch1 {
+  0%,100%{clip-path:inset(0 0 100% 0);transform:translate(0)}
+  10%{clip-path:inset(10% 0 60% 0);transform:translate(-2px,1px)}
+  20%{clip-path:inset(40% 0 30% 0);transform:translate(2px,-1px)}
+  30%{clip-path:inset(70% 0 5% 0);transform:translate(-1px,2px)}
+  40%{clip-path:inset(0 0 100% 0);transform:translate(0)}
+}
+.glitch-wrap { position: relative; display: inline-block; }
+.glitch-wrap::before, .glitch-wrap::after {
+  content: attr(data-text); position: absolute; top: 0; left: 0;
+  color: var(--green); font-size: inherit; font-weight: inherit; letter-spacing: inherit;
+}
+.glitch-wrap::before { color: var(--cyan); animation: glitch1 10s infinite; }
+.glitch-wrap::after { color: var(--red); animation: glitch1 10s infinite 0.05s; }
+
+/* ── EMPTY STATE ─────────────────────────────────────────────── */
+.empty-row td { text-align: center; padding: 32px; color: var(--text3); font-size: 10px; letter-spacing: 1px; }
 </style>
 </head>
 <body>
 
-<header class="header">
-  <div class="header-left">
-    <div class="logo">
-      <div class="logo-mark">IE</div>
-      <div class="logo-text"><span>IE.AI</span> Manus Command Center</div>
-    </div>
-    <div class="header-divider"></div>
-    <div class="header-subtitle">Mac Mini Gateway</div>
+<!-- TOP BAR -->
+<div id="topbar">
+  <div id="topbar-left">
+    <span class="pulse"></span>
+    <span id="main-title" class="glitch-wrap" data-text="● IE.AI COMMAND CENTER">● IE.AI COMMAND CENTER</span>
+    <span id="version-badge">v8.11.0</span>
   </div>
-  <div class="header-right">
-    <div class="refresh-indicator">
-      <div class="refresh-dot"></div>
-      <span id="last-refresh">Connecting...</span>
-    </div>
-    <div class="status-pill">
-      <div class="status-dot" id="status-dot"></div>
-      <span id="status-text">Checking...</span>
-    </div>
-    <span class="version-tag" id="version-tag">v8.0.0</span>
+  <nav id="topbar-nav">
+    <div class="nav-tab active" data-tab="overview">OVERVIEW</div>
+    <div class="nav-tab" data-tab="tasks">TASKS</div>
+    <div class="nav-tab" data-tab="projects">PROJECTS</div>
+    <div class="nav-tab" data-tab="neural">NEURAL</div>
+    <div class="nav-tab" data-tab="system">SYSTEM</div>
+  </nav>
+  <div id="topbar-right">
+    <span id="live-clock">00:00:00</span>
+    <div id="gw-status"><span class="pulse" id="gw-dot"></span><span id="gw-label" style="letter-spacing:1px">CHECKING</span></div>
+    <span id="ngrok-domain">—</span>
   </div>
-</header>
-
-<div class="endpoint-banner">
-  <div>
-    <div class="endpoint-label">Manus MCP Endpoint</div>
-    <div class="endpoint-url" id="mcp-url">https://dinoonemcp.ngrok.app/mcp</div>
-  </div>
-  <button class="copy-btn" id="copy-btn" onclick="copyEndpoint()">Copy Endpoint</button>
 </div>
 
-<main class="main">
+<!-- MAIN GRID -->
+<div id="main-grid">
 
-  <div class="stats-grid">
-    <div class="stat-card highlight">
-      <div class="stat-label">Total Tasks</div>
-      <div class="stat-value" id="stat-total">—</div>
-      <div class="stat-sub">All time</div>
+  <!-- LEFT: SYSTEM VITALS -->
+  <div id="left-col">
+    <div>
+      <div class="panel-label">Vitals</div>
+      <div class="big-metric">
+        <div class="big-metric-val" id="v-version">—</div>
+        <div class="big-metric-label">Gateway Version</div>
+      </div>
+      <div class="big-metric">
+        <div class="big-metric-val" id="v-total">—</div>
+        <div class="big-metric-label">Tasks Executed</div>
+      </div>
+      <div class="big-metric">
+        <div class="big-metric-val" id="v-success-rate">—</div>
+        <div class="big-metric-label">Success Rate</div>
+      </div>
+      <div class="big-metric">
+        <div class="big-metric-val cyan" id="v-avg-dur">—</div>
+        <div class="big-metric-label">Avg Duration (s)</div>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Successful</div>
-      <div class="stat-value" id="stat-success">—</div>
-      <div class="stat-sub" id="stat-success-pct">— success rate</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Avg Duration</div>
-      <div class="stat-value" id="stat-avg-dur">—</div>
-      <div class="stat-sub">seconds per task</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Last Tool Used</div>
-      <div class="stat-value" id="stat-last-tool" style="font-size:15px; padding-top:8px; word-break:break-all;">—</div>
-      <div class="stat-sub" id="stat-last-time">—</div>
-    </div>
-  </div>
 
-  <!-- E3: Projects Panel -->
-  <div class="projects-panel">
-    <div class="section-header">
-      <div class="section-title">Projects</div>
-      <div class="section-badge" id="projects-badge">—</div>
+    <div>
+      <div class="panel-label">System</div>
+      <div class="vitals-row">
+        <span class="vitals-key">API</span>
+        <span class="vitals-val" id="vt-api">—</span>
+      </div>
+      <div class="vitals-row">
+        <span class="vitals-key">Model</span>
+        <span class="vitals-val" id="vt-model">—</span>
+      </div>
+      <div class="vitals-row">
+        <span class="vitals-key">Endpoint</span>
+        <span class="vitals-val ok">/mcp</span>
+      </div>
+      <div class="vitals-row">
+        <span class="vitals-key">Sync</span>
+        <span class="vitals-val" id="vt-sync">—</span>
+      </div>
     </div>
-    <div class="projects-grid" id="projects-grid">
-      <div style="color:var(--text3);font-size:12px;">Loading projects...</div>
-    </div>
-  </div>
 
-  <!-- E4: Throughput Chart -->
-  <div class="chart-panel">
-    <div class="section-header">
-      <div class="section-title">Task Throughput — Last 12 Hours</div>
-    </div>
-    <div class="chart-container">
-      <canvas id="throughput-chart"></canvas>
-    </div>
-  </div>
-
-  <div class="arch-panel">
-    <div class="section-header">
-      <div class="section-title">Architecture — How Manus Controls Your Mac Mini</div>
-    </div>
-    <div class="arch-flow">
-      <div class="arch-node active">
-        <div class="node-icon">🧠</div>
-        <div class="node-label">Manus</div>
-        <div class="node-sub">AI Orchestrator</div>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node">
-        <div class="node-icon">🌐</div>
-        <div class="node-label">ngrok</div>
-        <div class="node-sub">Secure Tunnel</div>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node active">
-        <div class="node-icon">⚡</div>
-        <div class="node-label">Gateway v8</div>
-        <div class="node-sub">Tool Server</div>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node">
-        <div class="node-icon">🖥️</div>
-        <div class="node-label">Mac Mini</div>
-        <div class="node-sub">Shell / Files</div>
-      </div>
-      <div class="arch-arrow">→</div>
-      <div class="arch-node active">
-        <div class="node-icon">🤖</div>
-        <div class="node-label">Anthropic</div>
-        <div class="node-sub">Direct API</div>
+    <div>
+      <div class="panel-label">Neural Activity</div>
+      <div id="neural-bars">
+        <div class="n-bar" id="nb0"></div>
+        <div class="n-bar" id="nb1"></div>
+        <div class="n-bar" id="nb2"></div>
+        <div class="n-bar" id="nb3"></div>
+        <div class="n-bar" id="nb4"></div>
+        <div class="n-bar" id="nb5"></div>
+        <div class="n-bar" id="nb6"></div>
+        <div class="n-bar" id="nb7"></div>
       </div>
     </div>
   </div>
 
-  <div class="two-col">
-    <div class="tools-panel">
-      <div class="section-header">
-        <div class="section-title">Available MCP Tools</div>
-        <div class="section-badge">4 tools</div>
-      </div>
-      <div class="tool-item">
-        <div class="tool-icon">⚡</div>
-        <div>
-          <div class="tool-name">run_shell_command</div>
-          <div class="tool-desc">Execute any shell command on Mac Mini</div>
+  <!-- CENTER COLUMN -->
+  <div id="center-col">
+
+    <!-- OVERVIEW TAB -->
+    <div class="tab-pane active" id="tab-overview">
+      <div id="feed-panel">
+        <div class="feed-header">
+          <div class="feed-title">
+            <span class="pulse"></span>
+            LIVE EXECUTION FEED
+          </div>
+          <div class="feed-sync">LAST SYNC: <span id="last-sync">—</span></div>
         </div>
-        <div class="tool-status">READY</div>
-      </div>
-      <div class="tool-item">
-        <div class="tool-icon">📖</div>
-        <div>
-          <div class="tool-name">read_file</div>
-          <div class="tool-desc">Read any file from the filesystem</div>
+        <div class="feed-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Tool</th>
+                <th>Preview</th>
+                <th>Duration</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="task-tbody">
+              <tr class="empty-row"><td colspan="5">AWAITING NEURAL INPUT...</td></tr>
+            </tbody>
+          </table>
         </div>
-        <div class="tool-status">READY</div>
-      </div>
-      <div class="tool-item">
-        <div class="tool-icon">✏️</div>
-        <div>
-          <div class="tool-name">write_file</div>
-          <div class="tool-desc">Write or update files on Mac Mini</div>
+        <div id="timeline-wrap">
+          <div class="chart-label">EXECUTION TIMELINE — LAST 12H</div>
+          <div class="chart-inner"><canvas id="timeline-chart"></canvas></div>
         </div>
-        <div class="tool-status">READY</div>
-      </div>
-      <div class="tool-item">
-        <div class="tool-icon">🤖</div>
-        <div>
-          <div class="tool-name">run_anthropic_completion</div>
-          <div class="tool-desc">Direct Anthropic API — Sonnet or Opus</div>
-        </div>
-        <div class="tool-status" id="anthropic-status">CHECKING</div>
       </div>
     </div>
 
-    <div class="system-panel">
-      <div class="section-header">
-        <div class="section-title">System Status</div>
+    <!-- TASKS TAB -->
+    <div class="tab-pane" id="tab-tasks">
+      <div class="tab-inner">
+        <div class="section-block">
+          <div class="section-block-title"><span class="pulse"></span> ALL RECENT TASKS</div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr><th>Time</th><th>Tool</th><th>Preview</th><th>Duration</th><th>Status</th></tr>
+              </thead>
+              <tbody id="all-tasks-tbody">
+                <tr class="empty-row"><td colspan="5">LOADING...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
-      <div class="sys-row"><span class="sys-key">Gateway Version</span><span class="sys-val ok" id="sys-version">—</span></div>
-      <div class="sys-row"><span class="sys-key">Anthropic API</span><span class="sys-val" id="sys-anthropic">—</span></div>
-      <div class="sys-row"><span class="sys-key">ngrok Domain</span><span class="sys-val" id="sys-ngrok">—</span></div>
-      <div class="sys-row"><span class="sys-key">Project Path</span><span class="sys-val" id="sys-project">—</span></div>
-      <div class="sys-row"><span class="sys-key">MCP Endpoint</span><span class="sys-val ok">/mcp</span></div>
-      <div class="sys-row"><span class="sys-key">Standard Model</span><span class="sys-val" id="sys-model-std">—</span></div>
-      <div class="sys-row"><span class="sys-key">Power Model</span><span class="sys-val" id="sys-model-power">—</span></div>
+    </div>
+
+    <!-- PROJECTS TAB -->
+    <div class="tab-pane" id="tab-projects">
+      <div class="tab-inner">
+        <div class="section-block">
+          <div class="section-block-title"><span class="pulse cyan"></span> CLONED REPOSITORIES <span id="proj-count" style="color:var(--text3);font-size:9px;margin-left:4px;"></span></div>
+          <div id="proj-list-full"><div style="color:var(--text3);font-size:10px;">LOADING...</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEURAL TAB -->
+    <div class="tab-pane" id="tab-neural">
+      <div class="tab-inner">
+        <div class="section-block">
+          <div class="section-block-title"><span class="pulse"></span> SELF-IMPROVEMENT LOG</div>
+          <div id="si-list-full"><div style="color:var(--text3);font-size:10px;">LOADING...</div></div>
+        </div>
+        <div class="section-block">
+          <div class="section-block-title"><span class="pulse cyan"></span> GATEWAY ARCHITECTURE</div>
+          <div style="font-size:9px;color:var(--text3);line-height:2;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span style="color:var(--green);border:1px solid var(--border2);padding:3px 10px;">MANUS</span>
+              <span style="color:var(--text3);">──▶</span>
+              <span style="color:var(--cyan);border:1px solid rgba(0,212,255,0.2);padding:3px 10px;">NGROK</span>
+              <span style="color:var(--text3);">──▶</span>
+              <span style="color:var(--green);border:1px solid var(--border2);padding:3px 10px;">GATEWAY v8</span>
+              <span style="color:var(--text3);">──▶</span>
+              <span style="color:var(--cyan);border:1px solid rgba(0,212,255,0.2);padding:3px 10px;">MAC MINI</span>
+              <span style="color:var(--text3);">──▶</span>
+              <span style="color:var(--green);border:1px solid var(--border2);padding:3px 10px;">ANTHROPIC API</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SYSTEM TAB -->
+    <div class="tab-pane" id="tab-system">
+      <div class="tab-inner">
+        <div class="section-block">
+          <div class="section-block-title"><span class="pulse"></span> SYSTEM STATUS</div>
+          <div class="sys-row"><span class="sys-key">VERSION</span><span class="sys-val ok" id="sys-version">—</span></div>
+          <div class="sys-row"><span class="sys-key">ANTHROPIC API</span><span class="sys-val" id="sys-anthropic">—</span></div>
+          <div class="sys-row"><span class="sys-key">NGROK DOMAIN</span><span class="sys-val" id="sys-ngrok">—</span></div>
+          <div class="sys-row"><span class="sys-key">PROJECT PATH</span><span class="sys-val" id="sys-project">—</span></div>
+          <div class="sys-row"><span class="sys-key">MCP ENDPOINT</span><span class="sys-val ok">/mcp</span></div>
+          <div class="sys-row"><span class="sys-key">STANDARD MODEL</span><span class="sys-val" id="sys-model-std">—</span></div>
+          <div class="sys-row"><span class="sys-key">POWER MODEL</span><span class="sys-val" id="sys-model-power">—</span></div>
+        </div>
+        <div class="section-block">
+          <div class="section-block-title"><span class="pulse cyan"></span> MCP TOOLS</div>
+          <div class="tool-row"><span class="tool-name">run_shell_command</span><span class="tool-desc">Execute any shell command</span><span class="tool-status-badge">READY</span></div>
+          <div class="tool-row"><span class="tool-name">read_file</span><span class="tool-desc">Read filesystem</span><span class="tool-status-badge">READY</span></div>
+          <div class="tool-row"><span class="tool-name">write_file</span><span class="tool-desc">Write filesystem</span><span class="tool-status-badge">READY</span></div>
+          <div class="tool-row"><span class="tool-name">execute_code_task</span><span class="tool-desc">Anthropic API direct</span><span class="tool-status-badge" id="tool-anthropic-status">CHECKING</span></div>
+        </div>
+        <div class="section-block">
+          <div class="section-block-title"><span class="pulse yellow"></span> MCP ENDPOINT</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+            <span style="font-size:11px;color:var(--green);text-shadow:0 0 8px var(--green);" id="sys-mcp-url">—</span>
+            <button onclick="copyEndpoint()" id="copy-btn" style="background:none;border:1px solid var(--border2);color:var(--green);padding:3px 10px;cursor:pointer;font-family:var(--mono);font-size:9px;letter-spacing:1px;">COPY</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /center-col -->
+
+  <!-- RIGHT COLUMN -->
+  <div id="right-col">
+
+    <!-- ACTIVE PROJECTS -->
+    <div class="right-section" style="flex:0 0 auto;max-height:45%;">
+      <div class="panel-label">Active Projects</div>
+      <div id="proj-list"><div style="color:var(--text3);font-size:9px;">LOADING...</div></div>
+    </div>
+
+    <!-- SELF-IMPROVEMENT LOG -->
+    <div class="right-section" style="flex:1;min-height:0;">
+      <div class="panel-label">Self-Improvement Log</div>
+      <div id="si-list"><div style="color:var(--text3);font-size:9px;">LOADING...</div></div>
+    </div>
+
+    <!-- THROUGHPUT SPARKLINE -->
+    <div class="right-section" style="flex:0 0 auto;padding:10px 12px;">
+      <div class="panel-label">Throughput</div>
+      <div id="sparkline-wrap"><canvas id="sparkline-chart"></canvas></div>
+    </div>
+
+  </div><!-- /right-col -->
+
+</div><!-- /main-grid -->
+
+<!-- DRAWER -->
+<div id="drawer-overlay"></div>
+<div id="drawer">
+  <div id="drawer-header">
+    <span id="drawer-header-title">TASK DETAIL</span>
+    <button id="drawer-close" onclick="closeDrawer()">✕ CLOSE</button>
+  </div>
+  <div id="drawer-body">
+    <div>
+      <div class="d-label">Metadata</div>
+      <div class="d-meta">
+        <div class="d-meta-item"><div class="d-label">TOOL</div><div class="d-meta-val" id="d-tool">—</div></div>
+        <div class="d-meta-item"><div class="d-label">STATUS</div><div class="d-meta-val" id="d-status">—</div></div>
+        <div class="d-meta-item"><div class="d-label">DURATION</div><div class="d-meta-val" id="d-duration">—</div></div>
+        <div class="d-meta-item"><div class="d-label">TIME</div><div class="d-meta-val" id="d-time" style="color:var(--text2);">—</div></div>
+      </div>
+    </div>
+    <div>
+      <div class="d-label">Prompt</div>
+      <div class="d-content" id="d-prompt">—</div>
+    </div>
+    <div>
+      <div class="d-label">Output</div>
+      <div class="d-content" id="d-output">—</div>
     </div>
   </div>
-
-  <div class="table-panel">
-    <div class="table-header">
-      <div class="section-title">Recent Task History</div>
-      <div class="refresh-indicator">
-        <div class="refresh-dot ws-offline" id="ws-dot"></div>
-        <span id="ws-label">Connecting...</span>
-      </div>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Tool</th>
-          <th>Prompt / Command</th>
-          <th>Duration</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody id="task-tbody">
-        <tr><td colspan="5"><div class="empty-state"><div class="icon">⚡</div><p>No tasks yet. Manus will send tasks here through the MCP endpoint.</p></div></td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- E5: Self-Improvement Log -->
-  <div class="self-improve-panel">
-    <div class="section-header">
-      <div class="section-title">Gateway Self-Improvements</div>
-      <div class="section-badge" id="self-improve-badge">0</div>
-    </div>
-    <div class="self-improve-list" id="self-improve-list">
-      <div class="self-improve-empty">Loading...</div>
-    </div>
-  </div>
-
-</main>
+</div>
 
 <script>
-  // E2: Strip ANSI escape codes from output
-  function stripAnsi(str) {
-    if (!str) return str;
-    return str.replace(/[\u001b\u009b][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]|[\b\r]|\^[A-Z]/g, '');
+// ── Utilities ──────────────────────────────────────────────────────────────
+function stripAnsi(s) {
+  if (!s) return s;
+  return s.replace(/[\u001b\u009b][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]|[\b\r]|\^[A-Z]/g, '');
+}
+function fmtDur(ms) {
+  if (!ms) return '—';
+  return ms < 1000 ? ms + 'ms' : (ms/1000).toFixed(1) + 's';
+}
+function fmtTime(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts + 'Z').toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+  catch(e) { return ts; }
+}
+function badge(s) {
+  const m = {success:'badge-success',error:'badge-error',timeout:'badge-timeout',pending:'badge-pending'};
+  return `<span class="badge ${m[s]||'badge-pending'}">${s}</span>`;
+}
+function taskRow(t, flash) {
+  return `<tr data-task-id="${t.task_id}" ${flash?'class="row-new"':''}>
+    <td class="time-cell">${fmtTime(t.timestamp)}</td>
+    <td class="tool-tag">${t.tool||'—'}</td>
+    <td class="preview-cell" title="${stripAnsi(t.prompt_preview||'').replace(/"/g,'&quot;')}">${stripAnsi(t.prompt_preview||'—')}</td>
+    <td class="dur-cell">${fmtDur(t.duration_ms)}</td>
+    <td>${badge(t.status)}</td>
+  </tr>`;
+}
+
+// ── Clock ─────────────────────────────────────────────────────────────────
+function tickClock() {
+  document.getElementById('live-clock').textContent =
+    new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+}
+tickClock(); setInterval(tickClock, 1000);
+
+// ── Neural activity bars ──────────────────────────────────────────────────
+function randomizeBars() {
+  for (let i = 0; i < 8; i++) {
+    const h = Math.floor(Math.random() * 80) + 20;
+    const el = document.getElementById('nb' + i);
+    if (el) el.style.height = h + '%';
   }
+}
+randomizeBars(); setInterval(randomizeBars, 500);
 
-  function fmtDuration(ms) {
-    if (!ms) return '—';
-    if (ms < 1000) return ms + 'ms';
-    return (ms / 1000).toFixed(1) + 's';
-  }
-  function fmtTime(ts) {
-    if (!ts) return '—';
-    try { return new Date(ts + 'Z').toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
-    catch(e) { return ts; }
-  }
-  function statusBadge(s) {
-    const map = {success:'badge-success',error:'badge-error',timeout:'badge-timeout',pending:'badge-pending'};
-    return `<span class="badge ${map[s]||'badge-pending'}">${s}</span>`;
-  }
-
-  async function loadHealth() {
-    try {
-      const d = await fetch('/health').then(r=>r.json());
-      document.getElementById('status-dot').className = 'status-dot';
-      document.getElementById('status-text').textContent = 'Online';
-      document.getElementById('version-tag').textContent = 'v' + d.version;
-      document.getElementById('mcp-url').textContent = 'https://' + d.ngrok_domain + '/mcp';
-      document.getElementById('sys-version').textContent = d.version;
-      document.getElementById('sys-ngrok').textContent = d.ngrok_domain;
-      document.getElementById('sys-project').textContent = (d.project_path||'—').replace(/^\/Users\/[^/]+/, '~');
-      const ok = d.anthropic_configured;
-      const el = document.getElementById('sys-anthropic');
-      el.textContent = ok ? 'Configured ✓' : 'NOT CONFIGURED';
-      el.className = 'sys-val ' + (ok ? 'ok' : 'err');
-      const as = document.getElementById('anthropic-status');
-      as.textContent = ok ? 'READY' : 'NO KEY';
-      as.style.color = ok ? 'var(--success)' : 'var(--error)';
-      document.getElementById('stat-total').textContent = d.stats.total_tasks;
-      document.getElementById('stat-success').textContent = d.stats.successful;
-      const pct = d.stats.total_tasks > 0 ? Math.round(d.stats.successful/d.stats.total_tasks*100) : 0;
-      document.getElementById('stat-success-pct').textContent = pct + '% success rate';
-    } catch(e) {
-      document.getElementById('status-dot').className = 'status-dot offline';
-      document.getElementById('status-text').textContent = 'Offline';
-    }
-  }
-
-  async function loadConfig() {
-    try {
-      const d = await fetch('/api/config').then(r=>r.json());
-      document.getElementById('sys-model-std').textContent = d.models?.standard || '—';
-      document.getElementById('sys-model-power').textContent = d.models?.power || '—';
-    } catch(e) {}
-  }
-
-  function updateTaskTable(tasks) {
-    const tbody = document.getElementById('task-tbody');
-    if (!tasks.length) {
-      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">⚡</div><p>No tasks yet. Manus will send tasks here through the MCP endpoint.</p></div></td></tr>';
-      return;
-    }
-    const withDur = tasks.filter(t=>t.duration_ms);
-    if (withDur.length) {
-      const avg = withDur.reduce((s,t)=>s+t.duration_ms,0)/withDur.length;
-      document.getElementById('stat-avg-dur').textContent = (avg/1000).toFixed(1);
-    }
-    const last = tasks[0];
-    document.getElementById('stat-last-tool').textContent = last.tool || '—';
-    document.getElementById('stat-last-time').textContent = fmtTime(last.timestamp);
-    tbody.innerHTML = tasks.map(t=>`
-      <tr data-task-id="${t.task_id}">
-        <td style="color:var(--text3);font-size:11px;white-space:nowrap;">${fmtTime(t.timestamp)}</td>
-        <td><span class="tool-tag">${t.tool||'—'}</span></td>
-        <td><div class="prompt-preview" title="${stripAnsi(t.prompt_preview||'').replace(/"/g,'&quot;')}">${stripAnsi(t.prompt_preview||'—')}</div></td>
-        <td><span class="duration">${fmtDuration(t.duration_ms)}</span></td>
-        <td>${statusBadge(t.status)}</td>
-      </tr>`).join('');
-    attachRowClicks();
-  }
-
-  async function loadTasks() {
-    try {
-      const tasks = await fetch('/api/tasks?limit=25').then(r=>r.json());
-      updateTaskTable(tasks);
-    } catch(e) {}
-  }
-
-  // E3: Projects Panel
-  async function loadProjects() {
-    try {
-      const projects = await fetch('/api/projects').then(r=>r.json());
-      const grid = document.getElementById('projects-grid');
-      document.getElementById('projects-badge').textContent = projects.length + ' repos';
-      if (!projects.length) {
-        grid.innerHTML = '<div style="color:var(--text3);font-size:12px;">No projects found.</div>';
-        return;
-      }
-      grid.innerHTML = projects.map(p => `
-        <div class="project-card">
-          <div class="project-name">${p.name}</div>
-          <div class="project-commit" title="${(p.last_commit||'').replace(/"/g,'&quot;')}">${(p.last_commit||'—').slice(0,60)}</div>
-          ${p.has_claude_md
-            ? '<span class="badge badge-claude">CLAUDE.MD ✓</span>'
-            : '<span class="badge badge-no-claude">NO CLAUDE.MD</span>'}
-        </div>`).join('');
-    } catch(e) {
-      document.getElementById('projects-grid').innerHTML = '<div style="color:var(--text3);font-size:12px;">Failed to load projects.</div>';
-    }
-  }
-
-  // E4: Throughput Chart
-  let throughputChart = null;
-  async function loadThroughputChart() {
-    try {
-      const tasks = await fetch('/api/tasks?limit=200').then(r=>r.json());
-      const now = new Date();
-      const buckets = [];
-      const labels = [];
-      for (let i = 11; i >= 0; i--) {
-        const h = new Date(now);
-        h.setHours(h.getHours() - i, 0, 0, 0);
-        buckets.push({ start: h.getTime(), count: 0 });
-        const hr = h.getHours();
-        const ampm = hr >= 12 ? 'PM' : 'AM';
-        labels.push(((hr % 12) || 12) + ampm);
-      }
-      tasks.forEach(t => {
-        if (!t.timestamp) return;
-        const ts = new Date(t.timestamp + 'Z').getTime();
-        for (let i = 0; i < buckets.length; i++) {
-          const end = (i < buckets.length - 1) ? buckets[i+1].start : now.getTime() + 3600000;
-          if (ts >= buckets[i].start && ts < end) { buckets[i].count++; break; }
-        }
-      });
-      const counts = buckets.map(b => b.count);
-      const maxVal = Math.max(...counts, 0);
-      const ctx = document.getElementById('throughput-chart').getContext('2d');
-      if (throughputChart) {
-        throughputChart.data.labels = labels;
-        throughputChart.data.datasets[0].data = counts;
-        throughputChart.options.scales.y.max = maxVal + 1;
-        throughputChart.update();
-      } else {
-        throughputChart = new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels,
-            datasets: [{
-              data: counts,
-              backgroundColor: 'rgba(154,221,38,0.7)',
-              borderColor: '#9ADD26',
-              borderWidth: 1,
-              borderRadius: 4,
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-              x: { ticks: { color: '#888', font: { size: 11 } }, grid: { color: '#242424' } },
-              y: { ticks: { color: '#888', font: { size: 11 }, stepSize: 1 }, grid: { color: '#242424' }, min: 0, max: maxVal + 1 }
-            }
-          }
-        });
-      }
-    } catch(e) {}
-  }
-
-  // E5: Self-Improvement Log
-  async function loadSelfImprovements() {
-    try {
-      const tasks = await fetch('/api/tasks?limit=200').then(r=>r.json());
-      const filtered = tasks.filter(t => {
-        const prompt = (t.prompt_preview || '').toLowerCase();
-        const wd = (t.working_dir || '').toLowerCase();
-        return prompt.includes('ie_mcp_gateway') || prompt.includes('gateway') ||
-               wd.includes('ie_mcp_gateway') || wd.includes('gateway');
-      });
-      document.getElementById('self-improve-badge').textContent = filtered.length;
-      const list = document.getElementById('self-improve-list');
-      if (!filtered.length) {
-        list.innerHTML = '<div class="self-improve-empty">No self-improvements yet — ask Manus to enhance the gateway.</div>';
-        return;
-      }
-      list.innerHTML = filtered.map(t => `
-        <div class="self-improve-item">
-          <span class="self-improve-time">${fmtTime(t.timestamp)}</span>
-          ${statusBadge(t.status)}
-          <span class="self-improve-prompt" title="${stripAnsi(t.prompt_preview||'').replace(/"/g,'&quot;')}">${stripAnsi(t.prompt_preview||'—').slice(0,80)}</span>
-        </div>`).join('');
-    } catch(e) {}
-  }
-
-  function copyEndpoint() {
-    const url = document.getElementById('mcp-url').textContent;
-    navigator.clipboard.writeText(url).then(()=>{
-      const btn = document.getElementById('copy-btn');
-      btn.textContent = 'Copied!'; btn.classList.add('copied');
-      setTimeout(()=>{ btn.textContent='Copy Endpoint'; btn.classList.remove('copied'); }, 2000);
-    });
-  }
-
-  async function refresh() {
-    await Promise.all([loadHealth(), loadConfig(), loadTasks()]);
-    document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  }
-
-  // ── Task Detail Drawer ────────────────────────────────────────────────────
-  let drawerTask = null;
-  function openDrawer(task) {
-    drawerTask = task;
-    document.getElementById('drawer-tool').textContent = task.tool || '—';
-    document.getElementById('drawer-status').textContent = task.status || '—';
-    document.getElementById('drawer-duration').textContent = fmtDuration(task.duration_ms);
-    document.getElementById('drawer-time').textContent = fmtTime(task.timestamp);
-    document.getElementById('drawer-prompt').textContent = stripAnsi(task.prompt_preview || '(no prompt)');
-    document.getElementById('drawer-output').textContent = stripAnsi(task.output || '(no output yet)');
-    document.getElementById('drawer-overlay').classList.add('open');
-    document.getElementById('drawer').classList.add('open');
-  }
-  function closeDrawer() {
-    document.getElementById('drawer-overlay').classList.remove('open');
-    document.getElementById('drawer').classList.remove('open');
-  }
-  document.getElementById('drawer-overlay').addEventListener('click', closeDrawer);
-
-  function attachRowClicks() {
-    document.querySelectorAll('#task-tbody tr[data-task-id]').forEach(row => {
-      row.addEventListener('click', () => {
-        const taskId = row.dataset.taskId;
-        fetch('/api/tasks?limit=200').then(r=>r.json()).then(tasks => {
-          const t = tasks.find(x => x.task_id === taskId);
-          if (t) openDrawer(t);
-        });
-      });
-    });
-  }
-
-  // ── E1: WebSocket + SSE Fallback Live Feed ────────────────────────────────
-  let ws = null;
-  let wsReconnectTimer = null;
-  let sseTimer = null;
-  let wsConnected = false;
-  let wsFailed = false;
-  let wsFailTimer = null;
-
-  function setLiveStatus(mode) {
-    const dot = document.getElementById('ws-dot');
-    const label = document.getElementById('ws-label');
-    if (mode === 'ws') {
-      dot.className = 'refresh-dot ws-live';
-      label.textContent = '● Live (WS)';
-    } else if (mode === 'sse') {
-      dot.className = 'refresh-dot';
-      label.textContent = '● Live (SSE)';
-    } else {
-      dot.className = 'refresh-dot ws-offline';
-      label.textContent = '● Reconnecting...';
-    }
-  }
-
-  function startSSEFallback() {
-    if (sseTimer) return;
-    setLiveStatus('sse');
-    sseTimer = setInterval(async () => {
-      try {
-        const tasks = await fetch('/api/tasks?limit=25').then(r=>r.json());
-        updateTaskTable(tasks);
-        loadHealth();
-      } catch(e) {}
-    }, 3000);
-  }
-
-  function stopSSEFallback() {
-    if (sseTimer) { clearInterval(sseTimer); sseTimer = null; }
-  }
-
-  function connectWS() {
-    wsFailed = false;
-    wsConnected = false;
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = proto + '//' + location.host + '/ws/tasks';
-    ws = new WebSocket(url);
-
-    // If WS doesn't connect within 3 seconds, fall back to SSE polling
-    wsFailTimer = setTimeout(() => {
-      if (!wsConnected) {
-        wsFailed = true;
-        ws.close();
-        startSSEFallback();
-      }
-    }, 3000);
-
-    ws.onopen = () => {
-      wsConnected = true;
-      if (wsFailTimer) { clearTimeout(wsFailTimer); wsFailTimer = null; }
-      stopSSEFallback();
-      setLiveStatus('ws');
-      if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
-    };
-
-    ws.onmessage = (evt) => {
-      try {
-        const data = JSON.parse(evt.data);
-        if (data.type !== 'task_update') return;
-        const tbody = document.getElementById('task-tbody');
-        const empty = tbody.querySelector('tr td[colspan]');
-        if (empty) tbody.innerHTML = '';
-        const existing = tbody.querySelector(`tr[data-task-id="${data.task_id}"]`);
-        const rowHtml = `
-          <tr data-task-id="${data.task_id}" class="row-new">
-            <td style="color:var(--text3);font-size:11px;white-space:nowrap;">${fmtTime(data.timestamp)}</td>
-            <td><span class="tool-tag">${data.tool||'—'}</span></td>
-            <td><div class="prompt-preview" title="${stripAnsi(data.prompt_preview||'').replace(/"/g,'&quot;')}">${stripAnsi(data.prompt_preview||'—')}</div></td>
-            <td><span class="duration">${fmtDuration(data.duration_ms)}</span></td>
-            <td>${statusBadge(data.status)}</td>
-          </tr>`;
-        if (existing) {
-          existing.outerHTML = rowHtml;
-        } else {
-          tbody.insertAdjacentHTML('afterbegin', rowHtml);
-        }
-        attachRowClicks();
-        document.getElementById('stat-last-tool').textContent = data.tool || '—';
-        document.getElementById('stat-last-time').textContent = fmtTime(data.timestamp);
-        loadHealth();
-      } catch(e) {}
-    };
-
-    ws.onclose = () => {
-      wsConnected = false;
-      if (wsFailTimer) { clearTimeout(wsFailTimer); wsFailTimer = null; }
-      if (!wsFailed) {
-        setLiveStatus('reconnecting');
-        wsReconnectTimer = setTimeout(connectWS, 3000);
-      }
-    };
-
-    ws.onerror = () => { ws.close(); };
-  }
-
-  // Initial load then connect WebSocket and load new panels
-  refresh().then(() => {
-    attachRowClicks();
-    loadProjects();
-    loadThroughputChart();
-    loadSelfImprovements();
-    connectWS();
+// ── Tabs ─────────────────────────────────────────────────────────────────
+document.querySelectorAll('.nav-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    const pane = document.getElementById('tab-' + tab.dataset.tab);
+    if (pane) pane.classList.add('active');
   });
+});
 
-  // Keep panels fresh every 30s
-  setInterval(() => { loadHealth(); loadConfig(); }, 30000);
-  setInterval(() => { loadProjects(); loadSelfImprovements(); }, 30000);
-  setInterval(() => { loadThroughputChart(); }, 30000);
-</script>
+// ── Sync timer ────────────────────────────────────────────────────────────
+let lastSyncTime = null;
+function updateSyncLabel() {
+  if (!lastSyncTime) { document.getElementById('last-sync').textContent = '—'; return; }
+  const s = Math.round((Date.now() - lastSyncTime) / 1000);
+  document.getElementById('last-sync').textContent = s + 's ago';
+  document.getElementById('vt-sync').textContent = s + 's ago';
+}
+setInterval(updateSyncLabel, 1000);
 
-<!-- Task Detail Drawer -->
-<div class="drawer-overlay" id="drawer-overlay"></div>
-<div class="drawer" id="drawer">
-  <div class="drawer-header">
-    <span class="drawer-title">Task Detail</span>
-    <button class="drawer-close" onclick="closeDrawer()">✕ Close</button>
-  </div>
-  <div class="drawer-body">
-    <div class="drawer-section">
-      <div class="drawer-label">Metadata</div>
-      <div class="drawer-meta">
-        <div class="drawer-meta-item"><div class="drawer-label">Tool</div><div id="drawer-tool" style="font-size:12px;color:var(--accent);">—</div></div>
-        <div class="drawer-meta-item"><div class="drawer-label">Status</div><div id="drawer-status" style="font-size:12px;color:var(--text);">—</div></div>
-        <div class="drawer-meta-item"><div class="drawer-label">Duration</div><div id="drawer-duration" style="font-size:12px;color:var(--text);">—</div></div>
-        <div class="drawer-meta-item"><div class="drawer-label">Time</div><div id="drawer-time" style="font-size:12px;color:var(--text2);">—</div></div>
+// ── Health ────────────────────────────────────────────────────────────────
+async function loadHealth() {
+  try {
+    const d = await fetch('/health').then(r => r.json());
+    const ver = d.version || '—';
+    document.getElementById('v-version').textContent = ver;
+    document.getElementById('version-badge').textContent = 'v' + ver;
+    document.getElementById('sys-version').textContent = ver;
+    document.getElementById('gw-dot').className = 'pulse';
+    document.getElementById('gw-label').textContent = 'GATEWAY ONLINE';
+    document.getElementById('ngrok-domain').textContent = d.ngrok_domain || '—';
+    document.getElementById('sys-ngrok').textContent = d.ngrok_domain || '—';
+    document.getElementById('sys-mcp-url').textContent = 'https://' + (d.ngrok_domain||'…') + '/mcp';
+    document.getElementById('sys-project').textContent = (d.project_path||'—').replace(/^\/Users\/[^/]+/, '~');
+    const ok = d.anthropic_configured;
+    const anthEl = document.getElementById('sys-anthropic');
+    anthEl.textContent = ok ? '● CONNECTED' : '● ERROR';
+    anthEl.className = 'sys-val ' + (ok ? 'ok' : 'err');
+    document.getElementById('vt-api').textContent = ok ? '● CONNECTED' : '● ERROR';
+    document.getElementById('vt-api').className = 'vitals-val ' + (ok ? 'ok' : 'err');
+    document.getElementById('tool-anthropic-status').textContent = ok ? 'READY' : 'NO KEY';
+    document.getElementById('tool-anthropic-status').style.color = ok ? 'var(--green)' : 'var(--red)';
+    const total = d.stats?.total_tasks ?? 0;
+    const success = d.stats?.successful ?? 0;
+    document.getElementById('v-total').textContent = total;
+    const pct = total > 0 ? Math.round(success/total*100) : 0;
+    const rateEl = document.getElementById('v-success-rate');
+    rateEl.textContent = pct + '%';
+    rateEl.className = 'big-metric-val ' + (pct >= 80 ? '' : pct >= 60 ? 'yellow' : 'red');
+  } catch(e) {
+    document.getElementById('gw-dot').className = 'pulse red';
+    document.getElementById('gw-label').textContent = 'GATEWAY OFFLINE';
+  }
+}
+
+async function loadConfig() {
+  try {
+    const d = await fetch('/api/config').then(r => r.json());
+    const std = d.models?.standard || '—';
+    document.getElementById('sys-model-std').textContent = std;
+    document.getElementById('sys-model-power').textContent = d.models?.power || '—';
+    document.getElementById('vt-model').textContent = std.replace('claude-','').split('-')[0];
+  } catch(e) {}
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────
+let knownTaskIds = new Set();
+
+function updateFeedTable(tasks) {
+  const tbody = document.getElementById('task-tbody');
+  if (!tasks.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">AWAITING NEURAL INPUT...</td></tr>';
+    return;
+  }
+  const withDur = tasks.filter(t => t.duration_ms);
+  if (withDur.length) {
+    const avg = withDur.reduce((s,t) => s + t.duration_ms, 0) / withDur.length;
+    document.getElementById('v-avg-dur').textContent = (avg/1000).toFixed(1);
+  }
+  tbody.innerHTML = tasks.map(t => taskRow(t, false)).join('');
+  attachRowClicks(tbody);
+}
+
+function updateAllTable(tasks) {
+  const tbody = document.getElementById('all-tasks-tbody');
+  if (!tasks.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">NO TASKS YET</td></tr>'; return; }
+  tbody.innerHTML = tasks.map(t => taskRow(t, false)).join('');
+  attachRowClicks(tbody);
+}
+
+async function loadTasks() {
+  try {
+    const tasks = await fetch('/api/tasks?limit=100').then(r => r.json());
+    updateFeedTable(tasks.slice(0, 25));
+    updateAllTable(tasks);
+    updateSIList(tasks);
+    updateCharts(tasks);
+    lastSyncTime = Date.now();
+    updateSyncLabel();
+  } catch(e) {}
+}
+
+// ── Projects ──────────────────────────────────────────────────────────────
+async function loadProjects() {
+  try {
+    const projects = await fetch('/api/projects').then(r => r.json());
+    document.getElementById('proj-count').textContent = projects.length + ' repos';
+
+    // Right panel (compact)
+    const list = document.getElementById('proj-list');
+    if (!projects.length) { list.innerHTML = '<div style="color:var(--text3);font-size:9px;">NO REPOS CLONED</div>'; }
+    else list.innerHTML = projects.map(p => `
+      <div class="project-item">
+        <div class="project-name">${p.name}</div>
+        <div class="project-commit">${(p.last_commit||'—').slice(0,50)}</div>
+        <div class="project-badges">
+          ${p.has_claude_md
+            ? '<span class="badge-armed">● ARMED</span>'
+            : '<span class="badge-missing">○ MISSING</span>'}
+        </div>
+      </div>`).join('');
+
+    // Projects tab (full)
+    const full = document.getElementById('proj-list-full');
+    if (!projects.length) { full.innerHTML = '<div style="color:var(--text3);font-size:10px;">NO REPOS CLONED</div>'; }
+    else full.innerHTML = `<table><thead><tr><th>Name</th><th>Last Commit</th><th>CLAUDE.MD</th></tr></thead><tbody>
+      ${projects.map(p => `<tr>
+        <td style="color:var(--cyan);">${p.name}</td>
+        <td style="color:var(--text3);font-size:9px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.last_commit||'—'}</td>
+        <td>${p.has_claude_md ? '<span class="badge-armed" style="display:inline-block;padding:2px 6px;">● ARMED</span>' : '<span class="badge-missing" style="display:inline-block;padding:2px 6px;">○ MISSING</span>'}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+  } catch(e) {}
+}
+
+// ── Self-improvement log ───────────────────────────────────────────────────
+function updateSIList(tasks) {
+  const filtered = tasks.filter(t => {
+    const p = (t.prompt_preview||'').toLowerCase();
+    const w = (t.working_dir||'').toLowerCase();
+    return p.includes('ie_mcp_gateway') || p.includes('gateway') || w.includes('gateway');
+  });
+  // Right panel (compact)
+  const list = document.getElementById('si-list');
+  if (!filtered.length) { list.innerHTML = '<div style="color:var(--text3);font-size:9px;">NONE YET</div>'; }
+  else list.innerHTML = filtered.slice(0,20).map(t => `
+    <div class="si-item">
+      <div class="si-time">${fmtTime(t.timestamp)} ${badge(t.status)}</div>
+      <div class="si-prompt">${stripAnsi(t.prompt_preview||'—').slice(0,70)}</div>
+    </div>`).join('');
+  // Neural tab (full)
+  const full = document.getElementById('si-list-full');
+  if (!filtered.length) { full.innerHTML = '<div style="color:var(--text3);font-size:10px;">NO SELF-IMPROVEMENTS YET</div>'; }
+  else full.innerHTML = filtered.map(t => `
+    <div class="si-item" style="padding:8px 0;border-bottom:1px solid rgba(0,255,136,0.05);">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="si-time">${fmtTime(t.timestamp)}</span>
+        ${badge(t.status)}
       </div>
-    </div>
-    <div class="drawer-section">
-      <div class="drawer-label">Prompt</div>
-      <div class="drawer-content" id="drawer-prompt">—</div>
-    </div>
-    <div class="drawer-section">
-      <div class="drawer-label">Output</div>
-      <div class="drawer-content" id="drawer-output">—</div>
-    </div>
-  </div>
-</div>
+      <div class="si-prompt" style="max-width:none;white-space:normal;font-size:10px;margin-top:3px;">${stripAnsi(t.prompt_preview||'—').slice(0,120)}</div>
+    </div>`).join('');
+}
+
+// ── Charts ────────────────────────────────────────────────────────────────
+let timelineChart = null;
+let sparklineChart = null;
+
+function buildBuckets(tasks) {
+  const now = new Date();
+  const buckets = [];
+  const labels = [];
+  for (let i = 11; i >= 0; i--) {
+    const h = new Date(now);
+    h.setHours(h.getHours() - i, 0, 0, 0);
+    buckets.push({ start: h.getTime(), count: 0 });
+    const hr = h.getHours();
+    labels.push(((hr % 12)||12) + (hr>=12?'PM':'AM'));
+  }
+  tasks.forEach(t => {
+    if (!t.timestamp) return;
+    const ts = new Date(t.timestamp + 'Z').getTime();
+    for (let i = 0; i < buckets.length; i++) {
+      const end = i < buckets.length-1 ? buckets[i+1].start : now.getTime()+3600000;
+      if (ts >= buckets[i].start && ts < end) { buckets[i].count++; break; }
+    }
+  });
+  return { labels, counts: buckets.map(b => b.count) };
+}
+
+const chartDefaults = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { ticks: { color: '#3a5a42', font: { size: 9, family: "'Fira Code', monospace" } }, grid: { color: 'rgba(0,255,136,0.05)' } },
+    y: { ticks: { color: '#3a5a42', font: { size: 9 }, stepSize: 1 }, grid: { color: 'rgba(0,255,136,0.05)' }, min: 0 }
+  }
+};
+
+function updateCharts(tasks) {
+  const { labels, counts } = buildBuckets(tasks);
+  const maxVal = Math.max(...counts, 1);
+  // Timeline
+  const ctx1 = document.getElementById('timeline-chart').getContext('2d');
+  if (timelineChart) {
+    timelineChart.data.labels = labels;
+    timelineChart.data.datasets[0].data = counts;
+    timelineChart.options.scales.y.max = maxVal + 1;
+    timelineChart.update('none');
+  } else {
+    timelineChart = new Chart(ctx1, {
+      type: 'bar',
+      data: { labels, datasets: [{ data: counts, backgroundColor: 'rgba(0,255,136,0.5)', borderColor: '#00ff88', borderWidth: 1, borderRadius: 2 }] },
+      options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, max: maxVal + 1 } } }
+    });
+  }
+  // Sparkline
+  const ctx2 = document.getElementById('sparkline-chart').getContext('2d');
+  if (sparklineChart) {
+    sparklineChart.data.labels = labels;
+    sparklineChart.data.datasets[0].data = counts;
+    sparklineChart.update('none');
+  } else {
+    sparklineChart = new Chart(ctx2, {
+      type: 'line',
+      data: { labels, datasets: [{ data: counts, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.1)', borderWidth: 1, pointRadius: 0, tension: 0.4, fill: true }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { display: false },
+          y: { display: false, min: 0 }
+        }
+      }
+    });
+  }
+}
+
+// ── Row clicks / drawer ────────────────────────────────────────────────────
+function attachRowClicks(tbody) {
+  tbody.querySelectorAll('tr[data-task-id]').forEach(row => {
+    row.addEventListener('click', () => {
+      const tid = row.dataset.taskId;
+      fetch('/api/tasks?limit=200').then(r => r.json()).then(tasks => {
+        const t = tasks.find(x => x.task_id === tid);
+        if (t) openDrawer(t);
+      });
+    });
+  });
+}
+function openDrawer(t) {
+  document.getElementById('d-tool').textContent = t.tool || '—';
+  document.getElementById('d-status').textContent = t.status || '—';
+  document.getElementById('d-duration').textContent = fmtDur(t.duration_ms);
+  document.getElementById('d-time').textContent = fmtTime(t.timestamp);
+  document.getElementById('d-prompt').textContent = stripAnsi(t.prompt_preview || '(no prompt)');
+  document.getElementById('d-output').textContent = stripAnsi(t.output || '(no output)');
+  document.getElementById('drawer-overlay').classList.add('open');
+  document.getElementById('drawer').classList.add('open');
+}
+function closeDrawer() {
+  document.getElementById('drawer-overlay').classList.remove('open');
+  document.getElementById('drawer').classList.remove('open');
+}
+document.getElementById('drawer-overlay').addEventListener('click', closeDrawer);
+
+// ── Copy endpoint ─────────────────────────────────────────────────────────
+function copyEndpoint() {
+  const url = document.getElementById('sys-mcp-url').textContent;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = document.getElementById('copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = 'COPIED!'; btn.style.color = 'var(--green)';
+    setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 2000);
+  });
+}
+
+// ── WebSocket + SSE fallback ───────────────────────────────────────────────
+let ws = null, wsConnected = false, wsFailed = false;
+let wsFailTimer = null, wsReconnectTimer = null, sseTimer = null;
+
+function startSSE() {
+  if (sseTimer) return;
+  sseTimer = setInterval(async () => {
+    try {
+      const tasks = await fetch('/api/tasks?limit=100').then(r => r.json());
+      updateFeedTable(tasks.slice(0,25));
+      updateAllTable(tasks);
+      updateSIList(tasks);
+      updateCharts(tasks);
+      lastSyncTime = Date.now();
+      loadHealth();
+    } catch(e) {}
+  }, 3000);
+}
+function stopSSE() { if (sseTimer) { clearInterval(sseTimer); sseTimer = null; } }
+
+function connectWS() {
+  wsFailed = false; wsConnected = false;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws/tasks');
+
+  wsFailTimer = setTimeout(() => {
+    if (!wsConnected) { wsFailed = true; ws.close(); startSSE(); }
+  }, 3000);
+
+  ws.onopen = () => {
+    wsConnected = true;
+    clearTimeout(wsFailTimer); wsFailTimer = null;
+    stopSSE();
+    if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+  };
+
+  ws.onmessage = (evt) => {
+    try {
+      const data = JSON.parse(evt.data);
+      if (data.type !== 'task_update') return;
+      const tbody = document.getElementById('task-tbody');
+      const empty = tbody.querySelector('tr.empty-row');
+      if (empty) tbody.innerHTML = '';
+      const existing = tbody.querySelector(`tr[data-task-id="${data.task_id}"]`);
+      const html = taskRow(data, true);
+      if (existing) existing.outerHTML = html;
+      else tbody.insertAdjacentHTML('afterbegin', html);
+      attachRowClicks(tbody);
+      lastSyncTime = Date.now();
+      loadHealth();
+    } catch(e) {}
+  };
+
+  ws.onclose = () => {
+    wsConnected = false;
+    if (wsFailTimer) { clearTimeout(wsFailTimer); wsFailTimer = null; }
+    if (!wsFailed) wsReconnectTimer = setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+// ── Typing effect ─────────────────────────────────────────────────────────
+function typeTitle() {
+  const el = document.getElementById('main-title');
+  const full = '● IE.AI COMMAND CENTER';
+  el.dataset.text = full;
+  let i = 0;
+  el.textContent = '';
+  const iv = setInterval(() => {
+    el.textContent += full[i++];
+    el.dataset.text = el.textContent;
+    if (i >= full.length) clearInterval(iv);
+  }, 50);
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+async function boot() {
+  typeTitle();
+  await Promise.all([loadHealth(), loadConfig(), loadTasks(), loadProjects()]);
+  connectWS();
+}
+boot();
+
+// Slow background refresh (non-task data)
+setInterval(() => { loadHealth(); loadConfig(); }, 15000);
+setInterval(() => { loadProjects(); }, 30000);
+// 3s polling fallback if WS falls back
+setInterval(() => {
+  if (!wsConnected) return; // SSE handles it when WS is down
+  loadHealth();
+}, 15000);
+</script>
 </body>
 </html>
