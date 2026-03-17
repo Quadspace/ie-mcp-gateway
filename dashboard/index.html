@@ -516,6 +516,28 @@
       fill: var(--purple);
     }
 
+    /* ── ROI Chart Panel ── */
+    #roi-panel {
+      background: var(--card-bg);
+      border-top: 1px solid var(--border-faint);
+      padding: 14px 20px 10px;
+      flex: 0 0 auto;
+      position: relative;
+    }
+
+    #roi-panel .panel-header {
+      margin-bottom: 10px;
+    }
+
+    #roi-chart-wrap {
+      height: 90px;
+      position: relative;
+    }
+
+    #roi-chart-wrap canvas {
+      display: block;
+    }
+
     /* ── Tooltip ── */
     #tooltip {
       position: fixed;
@@ -729,6 +751,18 @@
         </div>
       </div>
     </main>
+
+    <!-- ROI CHART -->
+    <section id="roi-panel">
+      <div class="panel-header">
+        <div class="panel-header__dot"></div>
+        <span class="panel-header__title">Credit Savings — 30 Day ROI</span>
+        <span class="panel-header__badge" id="roi-total-badge">Loading…</span>
+      </div>
+      <div id="roi-chart-wrap">
+        <canvas id="roi-chart"></canvas>
+      </div>
+    </section>
 
     <!-- FOOTER / ENGINE ROOM -->
     <footer id="footer">
@@ -1069,21 +1103,201 @@
       }
     }
 
+    // ── ROI Chart ─────────────────────────────────────────────────────────
+    let roiChart = null;
+
+    async function loadROIChart() {
+      try {
+        const r = await fetch(`${BASE}/api/tasks?limit=500`, { headers: HEADERS });
+        const tasks = await r.json();
+
+        // Group by date (last 30 days)
+        const today = new Date();
+        const labels = [];
+        const savingsData = [];
+        const taskCountData = [];
+        let totalSaved = 0;
+
+        for (let i = 29; i >= 0; i--) {
+          const d = new Date(today);
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toISOString().slice(0, 10);
+          const label = i === 0 ? 'Today' : i === 1 ? 'Yesterday' :
+            d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          labels.push(label);
+
+          const dayTasks = tasks.filter(t => t.timestamp && t.timestamp.startsWith(dateStr));
+          const daySuccess = dayTasks.filter(t => t.status === 'success').length;
+          const daySaved = daySuccess * 19;
+          savingsData.push(daySaved);
+          taskCountData.push(dayTasks.length);
+          totalSaved += daySaved;
+        }
+
+        // Update badge
+        document.getElementById('roi-total-badge').textContent =
+          `~${totalSaved.toLocaleString()} credits saved (30d)`;
+
+        const ctx = document.getElementById('roi-chart').getContext('2d');
+
+        if (roiChart) roiChart.destroy();
+
+        roiChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Credits Saved',
+                data: savingsData,
+                backgroundColor: savingsData.map(v =>
+                  v > 0 ? 'rgba(154,221,38,0.55)' : 'rgba(154,221,38,0.06)'
+                ),
+                borderColor: savingsData.map(v =>
+                  v > 0 ? 'rgba(154,221,38,0.9)' : 'rgba(154,221,38,0.15)'
+                ),
+                borderWidth: 1,
+                borderRadius: 2,
+                yAxisID: 'y',
+              },
+              {
+                label: 'Tasks Run',
+                data: taskCountData,
+                type: 'line',
+                borderColor: 'rgba(70,50,218,0.6)',
+                backgroundColor: 'rgba(70,50,218,0.08)',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                tension: 0.4,
+                fill: false,
+                yAxisID: 'y2',
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 800 },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: '#1A1A1A',
+                borderColor: 'rgba(154,221,38,0.3)',
+                borderWidth: 1,
+                titleColor: '#9ADD26',
+                bodyColor: '#818287',
+                titleFont: { family: 'JetBrains Mono', size: 10 },
+                bodyFont: { family: 'JetBrains Mono', size: 10 },
+                callbacks: {
+                  title: items => items[0].label,
+                  label: item => {
+                    if (item.datasetIndex === 0) return `  ~${item.raw} credits saved`;
+                    return `  ${item.raw} tasks run`;
+                  }
+                }
+              }
+            },
+            scales: {
+              x: {
+                grid: { color: 'rgba(154,221,38,0.04)', drawBorder: false },
+                ticks: {
+                  color: '#818287',
+                  font: { family: 'Inter', size: 9 },
+                  maxTicksLimit: 10,
+                  maxRotation: 0,
+                }
+              },
+              y: {
+                position: 'left',
+                grid: { color: 'rgba(154,221,38,0.06)', drawBorder: false },
+                ticks: {
+                  color: '#818287',
+                  font: { family: 'JetBrains Mono', size: 9 },
+                  maxTicksLimit: 4,
+                  callback: v => v > 0 ? `~${v}` : '0'
+                },
+                beginAtZero: true,
+              },
+              y2: {
+                position: 'right',
+                grid: { display: false },
+                ticks: {
+                  color: 'rgba(70,50,218,0.6)',
+                  font: { family: 'JetBrains Mono', size: 9 },
+                  maxTicksLimit: 4,
+                },
+                beginAtZero: true,
+              }
+            }
+          }
+        });
+      } catch(e) {
+        console.error('ROI chart load failed:', e);
+      }
+    }
+
+    // ── Live task polling (2s) for particle animation ───────────────────────
+    let lastRunningId = null;
+
+    async function pollLiveTasks() {
+      try {
+        const r = await fetch(`${BASE}/api/tasks?limit=5`, { headers: HEADERS });
+        const tasks = await r.json();
+        const running = tasks.find(t => t.status === 'running' || t.status === 'pending');
+        const fwd = document.getElementById('particle-fwd');
+        const ret = document.getElementById('particle-ret');
+        const badge = document.getElementById('flow-status-badge');
+
+        if (running) {
+          if (lastRunningId !== running.task_id) {
+            lastRunningId = running.task_id;
+            // New running task — flash the flow
+            badge.textContent = 'ACTIVE';
+            badge.style.color = '#F59E0B';
+            fwd.style.display = 'block';
+            ret.style.display = 'none';
+            document.getElementById('dot-claude').style.fill = '#F59E0B';
+            document.getElementById('dot-manus').style.fill = '#F59E0B';
+          }
+        } else {
+          // No running tasks
+          if (lastRunningId) {
+            // Just finished — show return particle briefly
+            lastRunningId = null;
+            fwd.style.display = 'none';
+            ret.style.display = 'block';
+            badge.textContent = 'IDLE';
+            badge.style.color = 'rgba(154,221,38,0.5)';
+            document.getElementById('dot-claude').style.fill = 'rgba(154,221,38,0.3)';
+            document.getElementById('dot-manus').style.fill = '#4632DA';
+            setTimeout(() => { ret.style.display = 'none'; }, 3000);
+          }
+        }
+      } catch(e) { /* silent */ }
+    }
+
     // ── Initial load ───────────────────────────────────────────────────────
     async function init() {
       await Promise.all([loadHealth(), loadTasks()]);
-      loadSummary(); // derives from tasks already loaded
+      loadSummary();
+      loadROIChart();
     }
 
     init();
 
-    // ── Polling: refresh every 10 seconds ─────────────────────────────────
+    // ── Polling intervals ────────────────────────────────────────────────
     setInterval(() => {
       loadTasks().then(() => loadSummary());
     }, 10000);
 
     // Refresh health every 30 seconds
     setInterval(loadHealth, 30000);
+
+    // Refresh ROI chart every 5 minutes
+    setInterval(loadROIChart, 300000);
+
+    // Poll for live running tasks every 2 seconds
+    setInterval(pollLiveTasks, 2000);
   </script>
 </body>
 </html>
