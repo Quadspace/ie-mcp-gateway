@@ -42,7 +42,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.7.1"
+VERSION = "8.8.0"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -472,6 +472,59 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
         logger.error(f"[{task_id}] Exception: {e}")
 
 
+# ─── Context Injection Helper ───────────────────────────────────────────────
+async def _build_context_prompt(cwd: str, task: str) -> str:
+    """
+    Task 2.1: Build an enriched prompt by prepending project context to the task.
+    Gathers: last 10 git commits + CLAUDE.md contents.
+    Fails silently — if anything goes wrong, returns the original task unchanged.
+    """
+    context_parts = []
+
+    # 1. Recent git commits — what changed recently in this repo
+    try:
+        git_log_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", cwd, "log", "--oneline", "-10",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            stdin=asyncio.subprocess.DEVNULL,
+        )
+        git_log_out, _ = await asyncio.wait_for(git_log_proc.communicate(), timeout=10)
+        git_log = git_log_out.decode("utf-8", errors="replace").strip()
+        if git_log:
+            context_parts.append(f"## Recent Commits (last 10)\n{git_log}")
+    except Exception:
+        pass  # Fail silently
+
+    # 2. CLAUDE.md — standing project instructions
+    try:
+        claude_md_path = Path(cwd) / "CLAUDE.md"
+        if claude_md_path.exists():
+            claude_md = claude_md_path.read_text(encoding="utf-8", errors="replace").strip()
+            if claude_md:
+                # Truncate to 3000 chars to avoid blowing up the prompt
+                if len(claude_md) > 3000:
+                    claude_md = claude_md[:3000] + "\n...[truncated]"
+                context_parts.append(f"## Project Instructions (CLAUDE.md)\n{claude_md}")
+    except Exception:
+        pass  # Fail silently
+
+    # If no context gathered, return task unchanged
+    if not context_parts:
+        return task
+
+    context_block = "\n\n".join(context_parts)
+    enriched = (
+        f"<project_context>\n"
+        f"{context_block}\n"
+        f"</project_context>\n\n"
+        f"<task>\n"
+        f"{task}\n"
+        f"</task>"
+    )
+    return enriched
+
+
 # ─── Tool 5: execute_code_task ───────────────────────────────────────────────
 @mcp.tool()
 async def execute_code_task(
@@ -525,6 +578,10 @@ async def execute_code_task(
     env.pop("ANTHROPIC_AUTH_TOKEN", None) # avoid duplicate auth confusion
     env.pop("OPENROUTER_API_KEY", None)   # not used by Claude Code CLI
 
+    # Task 2.1: Context injection — gather git log + CLAUDE.md and prepend to task
+    # so Claude Code never starts cold. Runs async, fails silently if git/file unavailable.
+    enriched_task = await _build_context_prompt(cwd, task)
+
     # Fix: wrap with 'script -q /dev/null' to create a pseudo-TTY on macOS.
     # Claude Code CLI hangs without a TTY when spawned from a non-interactive
     # subprocess (e.g. a background service). This is a documented macOS bug.
@@ -532,7 +589,7 @@ async def execute_code_task(
     cmd = [
         "script", "-q", "/dev/null",
         CLAUDE_BIN,
-        "-p", task,
+        "-p", enriched_task,
         "--output-format", "text",
         "--dangerously-skip-permissions",
         "--max-turns", str(max_turns),
