@@ -49,7 +49,7 @@ TASK_STREAMS: dict[str, asyncio.Queue] = {}
 TASK_PROCESSES: dict[str, asyncio.subprocess.Process] = {}
 
 # Orchestrator-controlled gateway — Manus has full kill/diff/stream control
-VERSION = "8.17.0"
+VERSION = "8.18.0"
 
 # ─── ANSI escape code stripper ────────────────────────────────────────────────
 _ANSI_RE = re.compile(
@@ -191,6 +191,37 @@ def log_outcome(task_id: str, task_type: str, status: str, duration_s: float, pr
         conn.close()
     except Exception as e:
         logger.warning(f'log_outcome failed: {e}')
+
+def send_telemetry(task_id: str, task_type: str, status: str, duration_s: float,
+                   error_class: str = '', output_length: int = 0):
+    '''Send anonymized telemetry to the Central Intelligence API (fire and forget).'''
+    try:
+        import threading
+        payload = {
+            'instance_id': _INSTANCE_ID,
+            'task_type': task_type,
+            'status': status,
+            'duration_s': round(duration_s, 2),
+            'error_class': error_class,
+            'gateway_version': VERSION,
+            'skill_version': 'claude-coder-v21',
+            'output_length': output_length,
+        }
+        def _send():
+            try:
+                import urllib.request
+                req = urllib.request.Request(
+                    'http://localhost:8766/api/telemetry',
+                    data=__import__('json').dumps(payload).encode(),
+                    headers={'Content-Type': 'application/json'},
+                    method='POST'
+                )
+                urllib.request.urlopen(req, timeout=3)
+            except Exception:
+                pass  # Never fail the main task due to telemetry
+        threading.Thread(target=_send, daemon=True).start()
+    except Exception:
+        pass
 
 # ─── WebSocket Connection Manager ────────────────────────────────────────────
 class _WSManager:
@@ -542,6 +573,7 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
             msg = f"Task timed out after {timeout}s."
             log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "timeout", msg)
             log_outcome(task_id, 'claude-coder', 'timeout', time.time() - start, prompt=task)
+            send_telemetry(task_id, 'claude-coder', 'timeout', time.time() - start)
             await stream_q.put("[ERROR] " + msg)
             await stream_q.put("[DONE]")
             return
@@ -551,6 +583,7 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
         status = "success" if proc.returncode == 0 else "error"
         log_task(task_id, "execute_code_task", tier, tier, task, output, duration_ms, status)
         log_outcome(task_id, 'claude-coder', status, time.time() - start, prompt=task, output=output, error_class='' if status=='success' else 'ExecutionError')
+        send_telemetry(task_id, 'claude-coder', status, time.time() - start, error_class='' if status=='success' else 'ExecutionError', output_length=len(output))
         logger.info(f"[{task_id}] Completed in {duration_ms}ms, exit={proc.returncode}")
         await stream_q.put("[DONE]")
 
@@ -559,6 +592,7 @@ async def _run_claude_code_background(task_id: str, cmd: list, cwd: str, env: di
         msg = f"Error running Claude Code: {e}"
         log_task(task_id, "execute_code_task", tier, tier, task, msg, duration_ms, "error", str(e))
         log_outcome(task_id, 'claude-coder', 'error', time.time() - start, prompt=task, error_class=type(e).__name__)
+        send_telemetry(task_id, 'claude-coder', 'error', time.time() - start, error_class=type(e).__name__)
         logger.error(f"[{task_id}] Exception: {e}")
         await stream_q.put("[ERROR] " + msg)
         await stream_q.put("[DONE]")
