@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ie-mcp-gateway")
 
-VERSION = "8.5.1"
+VERSION = "8.5.2"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 HOME = Path(os.environ.get("HOME", "/Users/ie.ai-dino1"))
@@ -438,7 +438,12 @@ async def execute_code_task(
 
     # Build env — preserve OpenRouter proxy settings if configured
     env = os.environ.copy()
-    env["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
+    # Ensure ANTHROPIC_API_KEY is always set to a real value for Claude Code.
+    # When routing through OpenRouter, ecosystem.config.js sets ANTHROPIC_API_KEY=""
+    # and uses ANTHROPIC_AUTH_TOKEN instead. We must pass the real token as
+    # ANTHROPIC_API_KEY so the Claude Code subprocess can authenticate.
+    auth_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+    env["ANTHROPIC_API_KEY"] = auth_key
 
     # Fix: wrap with 'script -q /dev/null' to create a pseudo-TTY on macOS.
     # Claude Code CLI hangs without a TTY when spawned from a non-interactive
