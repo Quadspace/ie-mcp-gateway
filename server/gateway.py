@@ -782,7 +782,7 @@ async def execute_code_task(
     task: str,
     tier: str = "standard",
     working_dir: str = "",
-    max_turns: int = 10,
+    max_turns: int = 50,
 ) -> str:
     """
     Execute a coding task using Claude Code CLI on the Mac Mini.
@@ -932,7 +932,7 @@ async def execute_code_task_sync(
         "-p", enriched_task,
         "--output-format", "text",
         "--dangerously-skip-permissions",
-        "--max-turns", "10",
+        "--max-turns", "50",
         "--mcp-config", str(EMPTY_MCP_CFG),
     ]
 
@@ -1197,7 +1197,7 @@ async def api_execute_sync(request: Request) -> Response:
         "-p", enriched_task,
         "--output-format", "text",
         "--dangerously-skip-permissions",
-        "--max-turns", "10",
+        "--max-turns", "50",
         "--mcp-config", str(EMPTY_MCP_CFG),
     ]
 
